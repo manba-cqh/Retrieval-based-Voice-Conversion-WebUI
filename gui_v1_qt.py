@@ -3,8 +3,8 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QFrame, QStackedWidget
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, QSize, QPoint
+from PyQt6.QtGui import QFont, QIcon, QMouseEvent
 
 # 导入页面类
 from pages import (
@@ -20,66 +20,17 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.current_page = "home"  # 当前选中的页面
+        self.drag_position = QPoint()  # 拖动位置
+        self.dragging = False  # 是否正在拖动
         self.init_ui()
     
     def init_ui(self):
         """初始化用户界面"""
-        self.setWindowTitle("布TAI")
-        self.setMinimumSize(1200, 800)
+        # 隐藏标题栏（无边框窗口）
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         
-        # 设置深色主题样式
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #1e1e1e;
-            }
-            QWidget {
-                background-color: #1e1e1e;
-                color: #ffffff;
-            }
-            QPushButton {
-                background-color: #2d2d2d;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                color: #ffffff;
-            }
-            QPushButton:hover {
-                background-color: #3d3d3d;
-            }
-            QPushButton:pressed {
-                background-color: #1d1d1d;
-            }
-            QTabWidget::pane {
-                border: none;
-                background-color: #1e1e1e;
-            }
-            QTabBar::tab {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                padding: 10px 20px;
-                border: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background-color: #8b5cf6;
-                color: #ffffff;
-            }
-            QTabBar::tab:hover {
-                background-color: #3d3d3d;
-            }
-            QLineEdit {
-                background-color: #2d2d2d;
-                border: 1px solid #3d3d3d;
-                border-radius: 4px;
-                padding: 8px;
-                color: #ffffff;
-            }
-            QLineEdit:focus {
-                border: 1px solid #8b5cf6;
-            }
-        """)
+        self.setWindowTitle("布TAI")
+        self.setFixedSize(1200, 800)
         
         # 创建中央部件
         central_widget = QWidget()
@@ -100,6 +51,8 @@ class MainWindow(QMainWindow):
         """创建顶部导航栏"""
         top_bar = QFrame()
         top_bar.setFixedHeight(60)
+        # 保存顶部栏引用，用于拖动检测
+        self.top_bar = top_bar
         top_bar.setStyleSheet("""
             QFrame {
                 background-color: #252525;
@@ -122,19 +75,43 @@ class MainWindow(QMainWindow):
         
         top_layout.addStretch()
         
-        # 中间：导航链接
+        # 中间：导航链接（图标+文本）
         nav_buttons = [
-            ("主页", "home"),
-            ("推理", "inference"),
-            ("管理", "management"),
-            ("设置", "settings"),
-            ("联系客服", "support")
+            ("主页", "home", "res/主页.png"),
+            ("推理", "inference", "res/推理.png"),
+            ("管理", "management", "res/管理.png"),
+            ("设置", "settings", "res/设置.png"),
+            ("联系客服", "support", "res/客服.png")
         ]
         
         self.nav_buttons = {}
-        for text, key in nav_buttons:
-            btn = QPushButton(text)
+        for text, key, icon_path in nav_buttons:
+            # 创建带图标的按钮
+            icon = QIcon(icon_path)
+            btn = QPushButton(icon, text)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            
+            # 设置图标大小
+            btn.setIconSize(QSize(20, 20))
+            
+            # 设置按钮样式，确保图标和文本都能显示
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #2d2d2d;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    color: #ffffff;
+                    text-align: left;
+                }
+                QPushButton:hover {
+                    background-color: #3d3d3d;
+                }
+                QPushButton:pressed {
+                    background-color: #1d1d1d;
+                }
+            """)
+            
             btn.clicked.connect(lambda checked, k=key: self.on_nav_clicked(k))
             self.nav_buttons[key] = btn
             top_layout.addWidget(btn)
@@ -142,7 +119,7 @@ class MainWindow(QMainWindow):
         # 设置默认选中"主页"
         self.update_nav_button_style("home")
         
-        top_layout.addStretch()
+        top_layout.addSpacing(36)
         
         # 右侧：用户操作按钮
         logout_btn = QPushButton("退出登录")
@@ -150,40 +127,31 @@ class MainWindow(QMainWindow):
         logout_btn.clicked.connect(self.on_logout_clicked)
         top_layout.addWidget(logout_btn)
         
-        pudding_btn = QPushButton("布丁")
-        pudding_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        pudding_btn.clicked.connect(self.on_pudding_clicked)
-        top_layout.addWidget(pudding_btn)
-        
         # 窗口控制按钮（最小化、最大化、关闭）
         window_controls = QHBoxLayout()
-        window_controls.setSpacing(5)
+        window_controls.setSpacing(12)
         
-        minimize_btn = QPushButton("—")
+        minimize_btn = QPushButton("")
         minimize_btn.setFixedSize(30, 30)
         minimize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        minimize_btn.setStyleSheet("""
+            QPushButton {
+                border-image: url("res/最小化.png");
+            }
+        """)
         minimize_btn.clicked.connect(self.showMinimized)
         
-        maximize_btn = QPushButton("□")
-        maximize_btn.setFixedSize(30, 30)
-        maximize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        maximize_btn.clicked.connect(self.toggle_maximize)
-        
-        close_btn = QPushButton("×")
+        close_btn = QPushButton("")
         close_btn.setFixedSize(30, 30)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setStyleSheet("""
             QPushButton {
-                background-color: #e74c3c;
-            }
-            QPushButton:hover {
-                background-color: #c0392b;
+                border-image: url("res/关闭.png");
             }
         """)
         close_btn.clicked.connect(self.close)
         
         window_controls.addWidget(minimize_btn)
-        window_controls.addWidget(maximize_btn)
         window_controls.addWidget(close_btn)
         
         top_layout.addLayout(window_controls)
@@ -232,6 +200,7 @@ class MainWindow(QMainWindow):
                         padding: 8px 16px;
                         border-radius: 4px;
                         color: #ffffff;
+                        text-align: left;
                     }
                     QPushButton:hover {
                         background-color: #7c3aed;
@@ -248,6 +217,7 @@ class MainWindow(QMainWindow):
                         padding: 8px 16px;
                         border-radius: 4px;
                         color: #ffffff;
+                        text-align: left;
                     }
                     QPushButton:hover {
                         background-color: #3d3d3d;
@@ -266,23 +236,56 @@ class MainWindow(QMainWindow):
             
             # 更新导航按钮样式
             self.update_nav_button_style(key)
-            
-            print(f"切换到页面: {key}")
     
     def on_logout_clicked(self):
         """退出登录按钮点击事件"""
         print("退出登录")
         # TODO: 实现退出登录逻辑
     
-    def on_pudding_clicked(self):
-        """布丁按钮点击事件"""
-        print("布丁")
-        # TODO: 实现布丁功能
-    
     def on_search_clicked(self):
         """搜索按钮点击事件"""
         print("搜索")
         # TODO: 实现搜索逻辑
+    
+    def mousePressEvent(self, event: QMouseEvent):
+        """鼠标按下事件"""
+        # 检查是否在顶部栏区域（前60像素高度）
+        if event.position().y() <= 60:
+            if event.button() == Qt.MouseButton.LeftButton:
+                # 检查点击的是否是按钮
+                widget = self.childAt(event.position().toPoint())
+                # 如果点击的不是按钮，则允许拖动
+                if widget is None or not isinstance(widget, QPushButton):
+                    # 向上查找父控件，确保不是按钮的子控件
+                    parent = widget
+                    is_button = False
+                    while parent:
+                        if isinstance(parent, QPushButton):
+                            is_button = True
+                            break
+                        parent = parent.parent()
+                    
+                    if not is_button:
+                        self.dragging = True
+                        self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                        event.accept()
+                        return
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event: QMouseEvent):
+        """鼠标移动事件"""
+        if self.dragging and event.buttons() == Qt.MouseButton.LeftButton:
+            # 移动窗口
+            self.move(event.globalPosition().toPoint() - self.drag_position)
+            event.accept()
+        super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        """鼠标释放事件"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.dragging = False
+            event.accept()
+        super().mouseReleaseEvent(event)
 
 
 def main():
@@ -290,6 +293,50 @@ def main():
     
     # 设置应用程序样式
     app.setStyle('Fusion')
+    
+    # 设置全局样式表（应用到所有控件）
+    app.setStyleSheet("""
+        QMainWindow {
+            background-color: #1e1e1e;
+        }
+        QWidget {
+            background-color: #1e1e1e;
+            color: #ffffff;
+        }
+        QPushButton {
+            background-color: #2d2d2d;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            color: #ffffff;
+        }
+        QPushButton:hover {
+            background-color: #3d3d3d;
+        }
+        QPushButton:pressed {
+            background-color: #1d1d1d;
+        }
+        QTabWidget::pane {
+            border: none;
+            background-color: #1e1e1e;
+        }
+        QTabBar::tab {
+            background-color: #2d2d2d;
+            color: #ffffff;
+            padding: 10px 20px;
+            border: none;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+            margin-right: 2px;
+        }
+        QTabBar::tab:selected {
+            background-color: #8b5cf6;
+            color: #ffffff;
+        }
+        QTabBar::tab:hover {
+            background-color: #3d3d3d;
+        }
+    """)
     
     window = MainWindow()
     window.show()

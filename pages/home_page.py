@@ -556,7 +556,7 @@ class HomePage(BasePage):
         self.list_page = QWidget()
         list_layout = QVBoxLayout(self.list_page)
         list_layout.setContentsMargins(0, 0, 0, 0)
-        list_layout.setSpacing(0)
+        list_layout.setSpacing(24)
         
         # 顶部工具栏
         toolbar = self.create_toolbar()
@@ -569,10 +569,11 @@ class HomePage(BasePage):
             QScrollArea {
                 border: none;
                 background-color: #1e1e1e;
+                padding-left: -12px;
             }
             QScrollBar:vertical {
                 background-color: #2d2d2d;
-                width: 12px;
+                width: 8px;
                 border-radius: 6px;
             }
             QScrollBar::handle:vertical {
@@ -589,7 +590,7 @@ class HomePage(BasePage):
         grid_widget = QWidget()
         self.grid_layout = QGridLayout(grid_widget)
         self.grid_layout.setSpacing(20)
-        self.grid_layout.setContentsMargins(20, 20, 20, 20)
+        self.grid_layout.setContentsMargins(0, 0, 0, 0)
         
         scroll_area.setWidget(grid_widget)
         list_layout.addWidget(scroll_area)
@@ -602,12 +603,11 @@ class HomePage(BasePage):
     def create_toolbar(self):
         """创建顶部工具栏"""
         toolbar = QWidget()
-        toolbar.setFixedHeight(100)
-        toolbar.setStyleSheet("background-color: #252525; border-radius: 8px;")
+        toolbar.setStyleSheet("background-color: transparent;")
         
         layout = QVBoxLayout(toolbar)
-        layout.setContentsMargins(20, 15, 20, 15)
-        layout.setSpacing(15)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
         # 分类标签栏
         categories_layout = QHBoxLayout()
@@ -655,14 +655,8 @@ class HomePage(BasePage):
             
             self.category_buttons[category] = btn
             categories_layout.addWidget(btn)
-        
+
         categories_layout.addStretch()
-        layout.addLayout(categories_layout)
-        
-        # 搜索框
-        search_layout = QHBoxLayout()
-        search_label = QLabel("🔍")
-        search_label.setStyleSheet("color: #8b5cf6; font-size: 18px;")
         
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("请输入你想要的声音")
@@ -671,7 +665,7 @@ class HomePage(BasePage):
                 background-color: #1e1e1e;
                 border: 2px solid #3d3d3d;
                 border-radius: 8px;
-                padding: 10px 15px;
+                padding: 2px 15px;
                 color: #ffffff;
                 font-size: 14px;
             }
@@ -680,10 +674,9 @@ class HomePage(BasePage):
             }
         """)
         self.search_input.textChanged.connect(self.on_search_changed)
-        
-        search_layout.addWidget(search_label)
-        search_layout.addWidget(self.search_input)
-        layout.addLayout(search_layout)
+        categories_layout.addWidget(self.search_input)
+
+        layout.addLayout(categories_layout)
         
         return toolbar
     

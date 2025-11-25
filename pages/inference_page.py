@@ -17,10 +17,10 @@ import torchaudio.transforms as tat
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QSlider, QComboBox, QRadioButton, QButtonGroup, QGroupBox, QFrame,
-    QFileDialog, QMessageBox
+    QFileDialog, QMessageBox, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QResizeEvent
 
 # 导入项目模块（延迟导入，避免阻塞）
 sys.path.append(os.getcwd())
@@ -29,6 +29,70 @@ sys.path.append(os.getcwd())
 
 # 全局变量
 flag_vc = False
+
+
+class AdaptiveLabel(QLabel):
+    """自适应字体大小的QLabel"""
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self._base_font_size = 0.4  # 字体大小相对于高度的比例
+        self._min_font_size = 12
+        self._max_font_size = 200
+        # 延迟更新字体大小，等待widget显示后
+        QTimer.singleShot(0, self.update_font_size)
+    
+    def resizeEvent(self, event: QResizeEvent):
+        """重写resizeEvent，根据大小调整字体"""
+        super().resizeEvent(event)
+        self.update_font_size()
+    
+    def showEvent(self, event):
+        """显示时更新字体大小"""
+        super().showEvent(event)
+        self.update_font_size()
+    
+    def update_font_size(self):
+        """根据当前大小更新字体大小"""
+        size = self.size()
+        if size.width() <= 0 or size.height() <= 0:
+            return
+        
+        # 使用高度和宽度中的较小值来计算字体大小
+        min_dimension = min(size.width(), size.height())
+        font_size = int(min_dimension * self._base_font_size)
+        font_size = max(self._min_font_size, min(font_size, self._max_font_size))
+        
+        font = self.font()
+        font.setPointSize(font_size)
+        font.setBold(True)
+        self.setFont(font)
+
+
+class SquareFrame(QFrame):
+    """保持正方形比例的QFrame，高度占满，宽度等于高度"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._updating_size = False
+        self._last_height = 0
+    
+    def resizeEvent(self, event: QResizeEvent):
+        """重写resizeEvent，使宽度等于高度（保持正方形）"""
+        if self._updating_size:
+            return super().resizeEvent(event)
+        
+        size = event.size()
+        height = size.height()
+        
+        # 如果高度变化了，更新宽度限制
+        if height != self._last_height:
+            self._updating_size = True
+            # 设置最大和最小宽度为高度值，这样布局管理器会将宽度设置为高度
+            self.setMaximumWidth(height)
+            self.setMinimumWidth(height)
+            self._last_height = height
+            self._updating_size = False
+        
+        super().resizeEvent(event)
 
 
 def phase_vocoder(a, b, fade_out, fade_in):
@@ -162,31 +226,31 @@ class InferencePage(QWidget):
     
     def init_ui(self):
         """初始化UI"""
-        main_layout = QHBoxLayout(self)
+        main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
         
-        # 左侧区域
-        left_layout = QVBoxLayout()
-        left_layout.setSpacing(20)
+        # 上侧区域
+        top_layout = QHBoxLayout()
+        top_layout.setSpacing(20)
         
         # 左上：大预览区域
         large_preview = self.create_preview_area("布丁", size="large")
-        left_layout.addWidget(large_preview)
+        top_layout.addWidget(large_preview, 1)
         
-        # 左下：控制面板
-        control_panel = self.create_control_panel()
-        left_layout.addWidget(control_panel)
+        # 右下：音频设备和控制
+        control_panel = self.create_audio_device_panel()
+        top_layout.addWidget(control_panel, 1)
         
-        main_layout.addLayout(left_layout, 2)  # 左侧占2/3
+        main_layout.addLayout(top_layout, 3)  # 上侧占3/4
         
-        # 右侧区域：音频设备和控制
-        right_panel = self.create_audio_device_panel()
-        main_layout.addWidget(right_panel, 1)  # 右侧占1/3
+        # 下侧区域：音频控制
+        bottom_panel = self.create_control_panel()
+        main_layout.addWidget(bottom_panel, 1)  # 下侧占1/4
     
     def create_preview_area(self, text, size="large"):
-        """创建预览区域"""
-        preview = QFrame()
+        """创建预览区域（高度占满，宽度等于高度，保持正方形）"""
+        preview = SquareFrame()
         preview.setStyleSheet("""
             QFrame {
                 background-color: #000000;
@@ -195,25 +259,22 @@ class InferencePage(QWidget):
             }
         """)
         
-        if size == "large":
-            preview.setMinimumSize(400, 400)
-            preview.setMaximumSize(400, 400)
-            font_size = 72
-        else:
-            preview.setMinimumSize(120, 120)
-            preview.setMaximumSize(120, 120)
-            font_size = 36
+        # 设置大小策略，让高度可以扩展，宽度根据高度调整
+        preview.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         
         layout = QVBoxLayout(preview)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        label = QLabel(text)
-        label_font = QFont()
-        label_font.setPointSize(font_size)
-        label_font.setBold(True)
-        label.setFont(label_font)
-        label.setStyleSheet("color: #ffffff;")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # 使用自适应字体大小的Label
+        label = AdaptiveLabel(text)
+        # 根据size设置字体大小比例
+        if size == "large":
+            label._base_font_size = 0.4  # 大预览区域使用更大的字体比例
+        else:
+            label._base_font_size = 0.35  # 小预览区域使用稍小的字体比例
+        
+        label.setStyleSheet("color: #ffffff; border: none; background-color: transparent;")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(label)
         
         return preview
@@ -309,9 +370,9 @@ class InferencePage(QWidget):
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(self.on_refresh_devices)
         
+        button_layout.addStretch()
         button_layout.addWidget(save_btn)
         button_layout.addWidget(refresh_btn)
-        button_layout.addStretch()
         
         controls_layout.addLayout(button_layout)
         controls_layout.addStretch()
@@ -326,13 +387,14 @@ class InferencePage(QWidget):
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
+        container.setStyleSheet("background-color: transparent;")
         
         # 标签和值
         label_layout = QHBoxLayout()
         label = QLabel(label_text)
-        label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        label.setStyleSheet("color: #ffffff; font-size: 14px; border: none; background-color: transparent;")
         value_label = QLabel(str(value))
-        value_label.setStyleSheet("color: #8b5cf6; font-size: 14px; font-weight: bold;")
+        value_label.setStyleSheet("color: #8b5cf6; font-size: 14px; font-weight: bold; border: none; background-color: transparent;")
         value_label.setMinimumWidth(50)
         value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         
@@ -398,20 +460,27 @@ class InferencePage(QWidget):
             }
         """)
         
-        layout = QVBoxLayout(group)
+        layout = QHBoxLayout(group)
         layout.setSpacing(8)
         
         self.algorithm_group = QButtonGroup()
+        # 算法映射：显示文本 -> (实际值, 中文描述)
         algorithms = [
-            ("pm", "pm"),
-            ("harvest", "harvest"),
-            ("crepe", "crepe"),
-            ("rmvpe", "rmvpe"),
-            ("fcpe (推荐)", "fcpe")
+            ("pm", "pm", "速度快，效果一般"),
+            ("harvest", "harvest", "速度慢，效果好"),
+            ("crepe", "crepe", "占用高，效果好"),
+            ("rmvpe", "rmvpe", "占用适中，效果好"),
+            ("fcpe (推荐)", "fcpe", "占用低，效果好")
         ]
         
-        for i, (text, value) in enumerate(algorithms):
-            radio = QRadioButton(text)
+        # 创建反向映射：中文描述 -> 实际值（用于保存配置）
+        self.algorithm_value_map = {}
+        for text, value, desc in algorithms:
+            self.algorithm_value_map[desc] = value
+        
+        for i, (text, value, desc) in enumerate(algorithms):
+            # 显示文本使用中文描述
+            radio = QRadioButton(desc)
             radio.setStyleSheet("""
                 QRadioButton {
                     color: #ffffff;
@@ -437,6 +506,7 @@ class InferencePage(QWidget):
             elif value == "fcpe" and self.gui_config.f0method not in ["pm", "harvest", "crepe", "rmvpe"]:
                 radio.setChecked(True)
             self.algorithm_group.addButton(radio, i)
+            # 传递实际值（value）给回调函数
             radio.clicked.connect(lambda checked, v=value: self.on_algorithm_changed(v))
             layout.addWidget(radio)
         
@@ -464,12 +534,12 @@ class InferencePage(QWidget):
         title_font.setPointSize(18)
         title_font.setBold(True)
         title.setFont(title_font)
-        title.setStyleSheet("color: #ffffff;")
+        title.setStyleSheet("color: #ffffff; border: none; background-color: transparent;")
         
         time_label = QLabel("推理时间(ms):")
-        time_label.setStyleSheet("color: #ffffff; font-size: 12px;")
+        time_label.setStyleSheet("color: #ffffff; font-size: 12px; border: none; background-color: transparent;")
         self.time_value = QLabel("0")
-        self.time_value.setStyleSheet("color: #8b5cf6; font-size: 12px; font-weight: bold;")
+        self.time_value.setStyleSheet("color: #8b5cf6; font-size: 12px; font-weight: bold; border: none; background-color: transparent;")
         
         header_layout.addWidget(title)
         header_layout.addStretch()
@@ -554,7 +624,7 @@ class InferencePage(QWidget):
         layout.setSpacing(8)
         
         label = QLabel(label_text)
-        label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        label.setStyleSheet("color: #ffffff; font-size: 14px; border: none; background-color: transparent;")
         layout.addWidget(label)
         
         combo = QComboBox()
