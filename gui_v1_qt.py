@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QFrame, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QSize, QPoint
-from PyQt6.QtGui import QFont, QIcon, QMouseEvent
+from PyQt6.QtGui import QFont, QIcon, QMouseEvent, QPixmap
 
 # 导入页面类
 from pages import (
@@ -29,7 +29,7 @@ class MainWindow(QMainWindow):
         # 隐藏标题栏（无边框窗口）
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         
-        self.setWindowTitle("布TAI")
+        self.setWindowTitle("娱音")
         self.setFixedSize(1200, 800)
         
         # 创建中央部件
@@ -65,12 +65,12 @@ class MainWindow(QMainWindow):
         top_layout.setSpacing(20)
         
         # 左侧：Logo
-        logo_label = QLabel("布TAI")
+        logo_label = QLabel("")
         logo_font = QFont()
         logo_font.setPointSize(18)
         logo_font.setBold(True)
         logo_label.setFont(logo_font)
-        logo_label.setStyleSheet("color: #8b5cf6;")
+        logo_label.setPixmap(QPixmap("res/logo.png").scaled(82, 32))
         top_layout.addWidget(logo_label)
         
         top_layout.addStretch()
@@ -94,23 +94,8 @@ class MainWindow(QMainWindow):
             # 设置图标大小
             btn.setIconSize(QSize(20, 20))
             
-            # 设置按钮样式，确保图标和文本都能显示
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #2d2d2d;
-                    border: none;
-                    padding: 8px 16px;
-                    border-radius: 4px;
-                    color: #ffffff;
-                    text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: #3d3d3d;
-                }
-                QPushButton:pressed {
-                    background-color: #1d1d1d;
-                }
-            """)
+            # 基础样式由全局样式表提供，只设置特殊样式
+            btn.setStyleSheet("text-align: left;")
             
             btn.clicked.connect(lambda checked, k=key: self.on_nav_clicked(k))
             self.nav_buttons[key] = btn
@@ -193,13 +178,10 @@ class MainWindow(QMainWindow):
         """更新导航按钮样式"""
         for btn_key, btn in self.nav_buttons.items():
             if btn_key == selected_key:
+                # 选中状态：特殊背景色
                 btn.setStyleSheet("""
                     QPushButton {
                         background-color: #8b5cf6;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 4px;
-                        color: #ffffff;
                         text-align: left;
                     }
                     QPushButton:hover {
@@ -210,22 +192,8 @@ class MainWindow(QMainWindow):
                     }
                 """)
             else:
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: #2d2d2d;
-                        border: none;
-                        padding: 8px 16px;
-                        border-radius: 4px;
-                        color: #ffffff;
-                        text-align: left;
-                    }
-                    QPushButton:hover {
-                        background-color: #3d3d3d;
-                    }
-                    QPushButton:pressed {
-                        background-color: #1d1d1d;
-                    }
-                """)
+                # 未选中状态：使用全局样式，只设置特殊属性
+                btn.setStyleSheet("text-align: left;")
     
     def on_nav_clicked(self, key):
         """导航按钮点击事件"""
@@ -288,55 +256,29 @@ class MainWindow(QMainWindow):
         super().mouseReleaseEvent(event)
 
 
+def load_stylesheet(file_path):
+    """加载样式表文件"""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        print(f"警告: 找不到样式表文件 {file_path}")
+        return ""
+    except Exception as e:
+        print(f"加载样式表失败: {e}")
+        return ""
+
+
 def main():
     app = QApplication(sys.argv)
     
     # 设置应用程序样式
     app.setStyle('Fusion')
     
-    # 设置全局样式表（应用到所有控件）
-    app.setStyleSheet("""
-        QMainWindow {
-            background-color: #1e1e1e;
-        }
-        QWidget {
-            background-color: #1e1e1e;
-            color: #ffffff;
-        }
-        QPushButton {
-            background-color: #2d2d2d;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            color: #ffffff;
-        }
-        QPushButton:hover {
-            background-color: #3d3d3d;
-        }
-        QPushButton:pressed {
-            background-color: #1d1d1d;
-        }
-        QTabWidget::pane {
-            border: none;
-            background-color: #1e1e1e;
-        }
-        QTabBar::tab {
-            background-color: #2d2d2d;
-            color: #ffffff;
-            padding: 10px 20px;
-            border: none;
-            border-top-left-radius: 4px;
-            border-top-right-radius: 4px;
-            margin-right: 2px;
-        }
-        QTabBar::tab:selected {
-            background-color: #8b5cf6;
-            color: #ffffff;
-        }
-        QTabBar::tab:hover {
-            background-color: #3d3d3d;
-        }
-    """)
+    # 从文件加载全局样式表
+    stylesheet = load_stylesheet("res/style.qss")
+    if stylesheet:
+        app.setStyleSheet(stylesheet)
     
     window = MainWindow()
     window.show()

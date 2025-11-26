@@ -3,7 +3,7 @@ import json
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QScrollArea, QGridLayout, QFrame, QStackedWidget,
-    QProgressBar, QMessageBox
+    QProgressBar, QMessageBox, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
 from PyQt6.QtGui import QFont, QPixmap, QIcon
@@ -70,14 +70,8 @@ class ModelCard(QFrame):
         # 名称
         name_label = QLabel(self.model_name)
         name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        name_label.setStyleSheet("""
-            QLabel {
-                color: #ffffff;
-                font-size: 16px;
-                font-weight: bold;
-                padding: 5px;
-            }
-        """)
+        # 基础样式由全局样式表提供，只设置特殊样式
+        name_label.setStyleSheet("font-size: 16px; font-weight: bold; padding: 5px; border: none; background-color: transparent;")
         layout.addWidget(name_label)
         
         # 详情按钮
@@ -132,17 +126,12 @@ class ModelDetailPage(QWidget):
         nav_layout = QHBoxLayout()
         
         back_btn = QPushButton("← 返回")
+        # 基础样式由全局样式表提供，只设置特殊样式
         back_btn.setStyleSheet("""
             QPushButton {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                border: none;
                 border-radius: 6px;
                 padding: 8px 15px;
                 font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #3d3d3d;
             }
         """)
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -162,50 +151,23 @@ class ModelDetailPage(QWidget):
         
         # 左侧：大图和基本信息
         left_panel = self.create_left_panel()
+        left_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         content_layout.addWidget(left_panel, 1)
         
         # 右侧：详细信息
         right_panel = self.create_right_panel()
+        right_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         content_layout.addWidget(right_panel, 1)
         
         main_layout.addLayout(content_layout)
-        main_layout.addStretch()
     
     def create_left_panel(self):
         """创建左侧面板"""
         panel = QWidget()
-        panel.setStyleSheet("background-color: #252525; border-radius: 8px;")
+        panel.setStyleSheet("background-color: #25252E; border-radius: 4px;")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        
-        # 大图区域（带"音色详情"标签）
-        image_container = QWidget()
-        image_container.setFixedHeight(500)
-        image_container.setStyleSheet("""
-            QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #8b5cf6, stop:1 #6d28d9);
-                border-radius: 8px 8px 0 0;
-            }
-        """)
-        image_layout = QVBoxLayout(image_container)
-        image_layout.setContentsMargins(20, 20, 20, 20)
-        
-        # "音色详情"标签
-        detail_label = QLabel("音色详情")
-        detail_label.setStyleSheet("""
-            QLabel {
-                background-color: rgba(231, 76, 60, 200);
-                color: #ffffff;
-                font-size: 18px;
-                font-weight: bold;
-                padding: 8px 15px;
-                border-radius: 6px;
-            }
-        """)
-        image_layout.addWidget(detail_label)
-        image_layout.addStretch()
         
         # 占位图片（实际项目中可以加载真实图片）
         image_placeholder = QLabel()
@@ -219,14 +181,10 @@ class ModelDetailPage(QWidget):
             }
         """)
         image_placeholder.setText("🖼️")
-        image_layout.addWidget(image_placeholder)
-        image_layout.addStretch()
-        
-        layout.addWidget(image_container)
+        layout.addWidget(image_placeholder, 4)
         
         # 底部信息面板
         info_panel = QWidget()
-        info_panel.setStyleSheet("background-color: #1e1e1e; border-radius: 0 0 8px 8px;")
         info_layout = QVBoxLayout(info_panel)
         info_layout.setContentsMargins(20, 20, 20, 20)
         info_layout.setSpacing(15)
@@ -245,7 +203,8 @@ class ModelDetailPage(QWidget):
 采样率: {self.model_data.get("sample_rate", "48K")}<br>
 类别: {self.model_data.get("category_name", "免费音色")}
         """)
-        info_text.setStyleSheet("color: #ffffff; font-size: 14px;")
+        # 基础样式由全局样式表提供，只设置特殊字体大小
+        info_text.setStyleSheet("font-size: 14px;")
         info_row.addWidget(info_text)
         info_row.addStretch()
         
@@ -269,7 +228,7 @@ class ModelDetailPage(QWidget):
         info_row.addWidget(buy_btn)
         
         info_layout.addLayout(info_row)
-        layout.addWidget(info_panel)
+        layout.addWidget(info_panel, 1)
         
         return panel
     
@@ -281,19 +240,19 @@ class ModelDetailPage(QWidget):
         
         # 音色介绍
         intro_section = self.create_section("音色介绍", self.model_data.get("description", "茶韵悠悠可音袅袅少御音介于少女与御姐之间既有少女清脆又具御姐沉稳圆润柔和年龄感适中清嗓咳嗽呢喃细语悄悄话 笑声 自带情绪感"))
-        layout.addWidget(intro_section)
+        layout.addWidget(intro_section, 4)
         
         # 试听
         audition_section = self.create_audition_section()
-        layout.addWidget(audition_section)
+        layout.addWidget(audition_section, 3)
         
         # 试用
         trial_section = self.create_trial_section()
-        layout.addWidget(trial_section)
+        layout.addWidget(trial_section, 5)
         
         # 下载
         download_section = self.create_download_section()
-        layout.addWidget(download_section)
+        layout.addWidget(download_section, 5)
         
         layout.addStretch()
         return panel
@@ -312,12 +271,14 @@ class ModelDetailPage(QWidget):
         layout.setSpacing(10)
         
         title_label = QLabel(title)
-        title_label.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold;")
+        # 基础样式由全局样式表提供，只设置特殊样式
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold; border: none; background-color: transparent; padding: 0px;")
         layout.addWidget(title_label)
         
         content_label = QLabel(content)
         content_label.setWordWrap(True)
-        content_label.setStyleSheet("color: #ffffff; font-size: 14px; line-height: 1.6;")
+        # 基础样式由全局样式表提供，只设置特殊样式
+        content_label.setStyleSheet("font-size: 14px; line-height: 1.6; border: none; background-color: transparent; padding: 0px;")
         layout.addWidget(content_label)
         
         return section
@@ -336,7 +297,8 @@ class ModelDetailPage(QWidget):
         layout.setSpacing(15)
         
         title_label = QLabel("试听")
-        title_label.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold;")
+        # 基础样式由全局样式表提供，只设置特殊样式
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold; border: none; background-color: transparent; padding: 0px;")
         layout.addWidget(title_label)
         
         # 播放器控件
@@ -351,6 +313,7 @@ class ModelDetailPage(QWidget):
                 border: none;
                 border-radius: 20px;
                 font-size: 16px;
+                padding: 0px;
             }
             QPushButton:hover {
                 background-color: #7c3aed;
@@ -366,7 +329,8 @@ class ModelDetailPage(QWidget):
         
         # 时间显示
         time_label = QLabel("0:00 / 0:00")
-        time_label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        # 基础样式由全局样式表提供，只设置特殊字体大小
+        time_label.setStyleSheet("font-size: 14px;")
         player_layout.addWidget(time_label)
         
         layout.addLayout(player_layout)
@@ -386,27 +350,30 @@ class ModelDetailPage(QWidget):
         layout.setSpacing(15)
         
         title_label = QLabel("试用")
-        title_label.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold;")
+        # 基础样式由全局样式表提供，只设置特殊样式
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold; border: none; background-color: transparent; padding: 0px;")
         layout.addWidget(title_label)
         
         info_label = QLabel("在这里可以进行音色的试用!所有的音色均可试用60分钟,点击按钮后开始计时。")
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        # 基础样式由全局样式表提供，只设置特殊字体大小
+        info_label.setStyleSheet("font-size: 14px; border: none; background-color: transparent; padding: 0px;")
         layout.addWidget(info_label)
         
         # 试用按钮和时间显示
         trial_layout = QHBoxLayout()
         
         self.trial_btn = QPushButton("开始试用")
+        self.trial_btn.setFixedSize(120, 40)
         self.trial_btn.setStyleSheet("""
             QPushButton {
                 background-color: #8b5cf6;
                 color: #ffffff;
                 border: none;
                 border-radius: 6px;
-                padding: 12px 40px;
                 font-size: 16px;
                 font-weight: bold;
+                padding: 0px;
             }
             QPushButton:hover {
                 background-color: #7c3aed;
@@ -414,12 +381,12 @@ class ModelDetailPage(QWidget):
         """)
         self.trial_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.trial_btn.clicked.connect(self.on_trial_clicked)
-        trial_layout.addWidget(self.trial_btn)
+        trial_layout.addWidget(self.trial_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         
         self.trial_time_label = QLabel("剩余时间: 60:00")
-        self.trial_time_label.setStyleSheet("color: #8b5cf6; font-size: 16px; font-weight: bold;")
+        self.trial_time_label.setStyleSheet("color: #8b5cf6; font-size: 16px; font-weight: bold; border: none; background-color: transparent; padding: 0px;")
         self.trial_time_label.setVisible(False)
-        trial_layout.addWidget(self.trial_time_label)
+        trial_layout.addWidget(self.trial_time_label, alignment=Qt.AlignmentFlag.AlignCenter)
         trial_layout.addStretch()
         
         layout.addLayout(trial_layout)
@@ -439,27 +406,30 @@ class ModelDetailPage(QWidget):
         layout.setSpacing(15)
         
         title_label = QLabel("下载")
-        title_label.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold;")
+        # 基础样式由全局样式表提供，只设置特殊样式
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold; border: none; background-color: transparent; padding: 0px;")
         layout.addWidget(title_label)
         
         info_label = QLabel("在这里可以直接下载音色!下载完毕后点击使用。如果有任何问题点击联系客服界面,联系客服。")
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("color: #ffffff; font-size: 14px;")
+        # 基础样式由全局样式表提供，只设置特殊字体大小
+        info_label.setStyleSheet("font-size: 14px; border: none; background-color: transparent; padding: 0px;")
         layout.addWidget(info_label)
         
         # 下载按钮
         download_layout = QHBoxLayout()
         
         download_btn = QPushButton("点击按钮即可开始下载")
+        download_btn.setFixedSize(132, 36)
         download_btn.setStyleSheet("""
             QPushButton {
                 background-color: #8b5cf6;
                 color: #ffffff;
                 border: none;
                 border-radius: 6px;
-                padding: 12px 30px;
                 font-size: 14px;
                 font-weight: bold;
+                padding: 0px;
             }
             QPushButton:hover {
                 background-color: #7c3aed;
@@ -467,24 +437,25 @@ class ModelDetailPage(QWidget):
         """)
         download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         download_btn.clicked.connect(self.on_download_clicked)
-        download_layout.addWidget(download_btn)
+        download_layout.addWidget(download_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         
         alt_download_btn = QPushButton("备用下载通道")
+        alt_download_btn.setFixedSize(132, 36)
         alt_download_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3d3d3d;
                 color: #ffffff;
                 border: none;
                 border-radius: 6px;
-                padding: 12px 30px;
                 font-size: 14px;
+                padding: 0px;
             }
             QPushButton:hover {
                 background-color: #4d4d4d;
             }
         """)
         alt_download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        download_layout.addWidget(alt_download_btn)
+        download_layout.addWidget(alt_download_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         download_layout.addStretch()
         
         layout.addLayout(download_layout)
@@ -565,10 +536,9 @@ class HomePage(BasePage):
         # 模型网格区域
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
+        # 基础样式由全局样式表提供，只设置特殊样式
         scroll_area.setStyleSheet("""
             QScrollArea {
-                border: none;
-                background-color: #1e1e1e;
                 padding-left: -12px;
             }
             QScrollBar:vertical {
@@ -660,13 +630,13 @@ class HomePage(BasePage):
         
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("请输入你想要的声音")
+        # 基础样式由全局样式表提供，只设置特殊样式
         self.search_input.setStyleSheet("""
             QLineEdit {
                 background-color: #1e1e1e;
                 border: 2px solid #3d3d3d;
                 border-radius: 8px;
                 padding: 2px 15px;
-                color: #ffffff;
                 font-size: 14px;
             }
             QLineEdit:focus {

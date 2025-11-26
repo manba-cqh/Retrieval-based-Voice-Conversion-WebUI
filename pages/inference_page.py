@@ -152,7 +152,7 @@ class InferencePage(QWidget):
     
     def __init__(self):
         super().__init__()
-        self.setStyleSheet("background-color: #1e1e1e;")
+        # 样式由全局样式表提供
         
         # 延迟导入项目模块（避免阻塞）
         from configs.config import Config
@@ -273,7 +273,8 @@ class InferencePage(QWidget):
         else:
             label._base_font_size = 0.35  # 小预览区域使用稍小的字体比例
         
-        label.setStyleSheet("color: #ffffff; border: none; background-color: transparent;")
+        # 基础样式由全局样式表提供，只设置特殊颜色
+        label.setStyleSheet("color: #ffffff;")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(label)
         
@@ -355,18 +356,9 @@ class InferencePage(QWidget):
         save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         save_btn.clicked.connect(self.on_save_preset)
         
-        refresh_btn = QPushButton("🔄")
+        refresh_btn = QPushButton("")
         refresh_btn.setFixedSize(40, 40)
-        refresh_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2d2d2d;
-                border: none;
-                border-radius: 20px;
-            }
-            QPushButton:hover {
-                background-color: #3d3d3d;
-            }
-        """)
+        refresh_btn.setStyleSheet("border-image: url('res/刷新图标.png');")
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(self.on_refresh_devices)
         
@@ -386,7 +378,7 @@ class InferencePage(QWidget):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(5)
+        layout.setSpacing(9)
         container.setStyleSheet("background-color: transparent;")
         
         # 标签和值
@@ -407,27 +399,8 @@ class InferencePage(QWidget):
         slider.setMinimum(int(min_val / step))
         slider.setMaximum(int(max_val / step))
         slider.setValue(int(default_val / step))
-        slider.setStyleSheet("""
-            QSlider::groove:horizontal {
-                background-color: #2d2d2d;
-                height: 6px;
-                border-radius: 3px;
-            }
-            QSlider::handle:horizontal {
-                background-color: #8b5cf6;
-                width: 18px;
-                height: 18px;
-                margin: -6px 0;
-                border-radius: 9px;
-            }
-            QSlider::handle:horizontal:hover {
-                background-color: #7c3aed;
-            }
-            QSlider::sub-page:horizontal {
-                background-color: #8b5cf6;
-                border-radius: 3px;
-            }
-        """)
+        slider.setFixedHeight(18)
+        # 样式由全局样式表提供
         
         # 连接信号更新值显示
         def update_value(val):
@@ -444,21 +417,7 @@ class InferencePage(QWidget):
     def create_algorithm_group(self):
         """创建音高算法选择组"""
         group = QGroupBox("音高算法:")
-        group.setStyleSheet("""
-            QGroupBox {
-                color: #ffffff;
-                font-size: 14px;
-                border: 1px solid #3d3d3d;
-                border-radius: 6px;
-                margin-top: 10px;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
+        # 样式由全局样式表提供
         
         layout = QHBoxLayout(group)
         layout.setSpacing(8)
@@ -481,26 +440,7 @@ class InferencePage(QWidget):
         for i, (text, value, desc) in enumerate(algorithms):
             # 显示文本使用中文描述
             radio = QRadioButton(desc)
-            radio.setStyleSheet("""
-                QRadioButton {
-                    color: #ffffff;
-                    font-size: 13px;
-                }
-                QRadioButton::indicator {
-                    width: 16px;
-                    height: 16px;
-                }
-                QRadioButton::indicator:unchecked {
-                    border: 2px solid #3d3d3d;
-                    border-radius: 8px;
-                    background-color: #2d2d2d;
-                }
-                QRadioButton::indicator:checked {
-                    border: 2px solid #8b5cf6;
-                    border-radius: 8px;
-                    background-color: #8b5cf6;
-                }
-            """)
+            # 样式由全局样式表提供
             if value == self.gui_config.f0method:  # 根据配置设置默认选中
                 radio.setChecked(True)
             elif value == "fcpe" and self.gui_config.f0method not in ["pm", "harvest", "crepe", "rmvpe"]:
@@ -588,21 +528,13 @@ class InferencePage(QWidget):
         self.start_btn.clicked.connect(self.on_start_vc)
         
         self.stop_btn = QPushButton("停止变声")
+        # 基础样式由全局样式表提供，只设置特殊样式
         self.stop_btn.setStyleSheet("""
             QPushButton {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                border: none;
                 border-radius: 8px;
                 padding: 15px 30px;
                 font-size: 16px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #3d3d3d;
-            }
-            QPushButton:pressed {
-                background-color: #1d1d1d;
             }
         """)
         self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -618,7 +550,8 @@ class InferencePage(QWidget):
     
     def create_device_group(self, label_text, device_list, default_device):
         """创建设备选择组，返回容器和下拉框"""
-        container = QWidget()
+        container = QFrame()
+        container.setStyleSheet("QFrame { background-color: #252525; border: none; }")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -634,36 +567,7 @@ class InferencePage(QWidget):
                 combo.setCurrentText(default_device)
         else:
             combo.addItem("未找到设备")
-        combo.setStyleSheet("""
-            QComboBox {
-                background-color: #2d2d2d;
-                border: 1px solid #3d3d3d;
-                border-radius: 6px;
-                padding: 8px;
-                color: #ffffff;
-                font-size: 13px;
-            }
-            QComboBox:hover {
-                border: 1px solid #8b5cf6;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 30px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid #ffffff;
-                margin-right: 10px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2d2d2d;
-                border: 1px solid #3d3d3d;
-                selection-background-color: #8b5cf6;
-                color: #ffffff;
-            }
-        """)
+        # 样式由全局样式表提供
         combo.setCursor(Qt.CursorShape.PointingHandCursor)
         layout.addWidget(combo)
         
