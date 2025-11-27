@@ -6,6 +6,58 @@ from infer.lib import jit
 from infer.lib.jit.get_synthesizer import get_synthesizer
 from time import time as ttime
 import fairseq
+# 修复 PyTorch 2.6 兼容性问题：fairseq 的 checkpoint 加载需要 weights_only=False
+import fairseq.checkpoint_utils
+_original_load_checkpoint_to_cpu = fairseq.checkpoint_utils.load_checkpoint_to_cpu
+def _patched_load_checkpoint_to_cpu(path, arg_overrides=None, load_on_all_ranks=False):
+    """修复 PyTorch 2.6 兼容性的 patch 函数"""
+    import torch
+    local_path = fairseq.file_io.PathManager.get_local_path(path)
+    if local_path != path and fairseq.file_io.PathManager.path_requires_pathmanager(path):
+        import os
+        try:
+            os.remove(local_path)
+        except FileNotFoundError:
+            pass
+        if load_on_all_ranks:
+            torch.distributed.barrier()
+        local_path = fairseq.file_io.PathManager.get_local_path(path)
+    
+    with open(local_path, "rb") as f:
+        # 设置 weights_only=False 以兼容 PyTorch 2.6
+        state = torch.load(f, map_location=torch.device("cpu"), weights_only=False)
+    
+    if "args" in state and state["args"] is not None and arg_overrides is not None:
+        args = state["args"]
+        for arg_name, arg_val in arg_overrides.items():
+            setattr(args, arg_name, arg_val)
+    
+    if "cfg" in state and state["cfg"] is not None:
+        # hack to be able to set Namespace in dict config. this should be removed when we update to newer
+        # omegaconf version that supports object flags, or when we migrate all existing models
+        from omegaconf import __version__ as oc_version
+        from omegaconf import _utils
+        from omegaconf import OmegaConf
+        
+        if oc_version < "2.2":
+            old_primitive = _utils.is_primitive_type
+            _utils.is_primitive_type = lambda _: True
+            
+            state["cfg"] = OmegaConf.create(state["cfg"])
+            
+            _utils.is_primitive_type = old_primitive
+            OmegaConf.set_struct(state["cfg"], True)
+        else:
+            state["cfg"] = OmegaConf.create(state["cfg"], flags={"allow_objects": True})
+        
+        if arg_overrides is not None:
+            from fairseq.dataclass.utils import overwrite_args_by_name
+            overwrite_args_by_name(state["cfg"], arg_overrides)
+    
+    from fairseq.checkpoint_utils import _upgrade_state_dict
+    state = _upgrade_state_dict(state)
+    return state
+fairseq.checkpoint_utils.load_checkpoint_to_cpu = _patched_load_checkpoint_to_cpu
 import faiss
 import numpy as np
 import parselmouth
