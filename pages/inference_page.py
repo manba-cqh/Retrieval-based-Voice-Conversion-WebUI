@@ -17,10 +17,10 @@ import torchaudio.transforms as tat
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QSlider, QComboBox, QRadioButton, QButtonGroup, QGroupBox, QFrame,
-    QFileDialog, QMessageBox, QSizePolicy
+    QFileDialog, QMessageBox, QSizePolicy, QScrollArea
 )
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QResizeEvent
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QFont, QResizeEvent, QPixmap
 
 # 导入项目模块（延迟导入，避免阻塞）
 sys.path.append(os.getcwd())
@@ -120,6 +120,102 @@ def phase_vocoder(a, b, fade_out, fade_in):
     return result
 
 
+class ModelCard(QFrame):
+    """模型卡片组件（用于推理页面）"""
+    clicked = pyqtSignal(dict)  # 发送模型数据
+    
+    def __init__(self, model_data, parent=None):
+        super().__init__(parent)
+        self.model_data = model_data
+        self.model_name = model_data.get("name", "未知")
+        self.model_image = model_data.get("image", "")
+        self.is_selected = False
+        
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """设置UI"""
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #252525;
+                border: 2px solid #3d3d3d;
+                border-radius: 8px;
+            }
+            QFrame:hover {
+                border: 2px solid #8b5cf6;
+                background-color: #2d2d2d;
+            }
+        """)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        
+        # 头像区域
+        image_label = QLabel()
+        image_label.setFixedSize(80, 80)
+        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        image_label.setStyleSheet("""
+            QLabel {
+                background-color: #1e1e1e;
+                border-radius: 6px;
+                border: 1px solid #3d3d3d;
+            }
+        """)
+        
+        # 如果有图片路径，尝试加载（这里先显示占位符）
+        if self.model_image:
+            # TODO: 实际项目中可以加载网络图片或本地图片
+            image_label.setText("🖼️")
+        else:
+            # 根据名称生成占位符
+            placeholder = self.model_name[0] if self.model_name else "?"
+            image_label.setText(f"<div style='font-size: 36px; color: #8b5cf6;'>{placeholder}</div>")
+        
+        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(image_label)
+        
+        # 名称
+        name_label = QLabel(self.model_name)
+        name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        name_label.setStyleSheet("font-size: 12px; font-weight: bold; padding: 3px; border: none; background-color: transparent;")
+        name_label.setWordWrap(True)
+        name_label.setMaximumHeight(40)  # 限制名称高度，避免过长
+        layout.addWidget(name_label)
+        
+        layout.addStretch()
+    
+    def mousePressEvent(self, event):
+        """鼠标点击事件"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.model_data)
+        super().mousePressEvent(event)
+    
+    def set_selected(self, selected):
+        """设置选中状态"""
+        self.is_selected = selected
+        if selected:
+            self.setStyleSheet("""
+                QFrame {
+                    background-color: #2d2d2d;
+                    border: 2px solid #8b5cf6;
+                    border-radius: 8px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QFrame {
+                    background-color: #252525;
+                    border: 2px solid #3d3d3d;
+                    border-radius: 8px;
+                }
+                QFrame:hover {
+                    border: 2px solid #8b5cf6;
+                    background-color: #2d2d2d;
+                }
+            """)
+
+
 class GUIConfig:
     """GUI配置类"""
     def __init__(self, n_cpu=4):
@@ -210,6 +306,12 @@ class InferencePage(QWidget):
         self.input_device_combo = None
         self.output_device_combo = None
         
+        # 模型列表相关
+        self.models_data = []
+        self.current_model = None
+        self.model_cards = []
+        self.preview_label = None
+        
         # 初始化设备列表
         self.update_devices()
         
@@ -219,6 +321,9 @@ class InferencePage(QWidget):
         # 初始化UI
         self.init_ui()
         
+        # 加载模型列表
+        self.load_models()
+        
         # 定时器更新推理时间
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_inference_time)
@@ -226,9 +331,24 @@ class InferencePage(QWidget):
     
     def init_ui(self):
         """初始化UI"""
-        main_layout = QVBoxLayout(self)
+        main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
+
+        left_layout = QVBoxLayout()
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(0)
+
+        right_layout = QVBoxLayout()
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+
+        main_layout.addLayout(left_layout, 1)
+        main_layout.addLayout(right_layout, 3)
+        
+        # 左侧：模型列表
+        model_list_panel = self.create_model_list_panel()
+        left_layout.addWidget(model_list_panel)
         
         # 上侧区域
         top_layout = QHBoxLayout()
@@ -236,17 +356,18 @@ class InferencePage(QWidget):
         
         # 左上：大预览区域
         large_preview = self.create_preview_area("布丁", size="large")
+        self.preview_label = large_preview.findChild(AdaptiveLabel)
         top_layout.addWidget(large_preview, 1)
         
         # 右下：音频设备和控制
         control_panel = self.create_audio_device_panel()
         top_layout.addWidget(control_panel, 1)
         
-        main_layout.addLayout(top_layout, 3)  # 上侧占3/4
+        right_layout.addLayout(top_layout, 3)  # 上侧占3/4
         
         # 下侧区域：音频控制
         bottom_panel = self.create_control_panel()
-        main_layout.addWidget(bottom_panel, 1)  # 下侧占1/4
+        right_layout.addWidget(bottom_panel, 1)  # 下侧占1/4
     
     def create_preview_area(self, text, size="large"):
         """创建预览区域（高度占满，宽度等于高度，保持正方形）"""
@@ -279,6 +400,118 @@ class InferencePage(QWidget):
         layout.addWidget(label)
         
         return preview
+    
+    def create_model_list_panel(self):
+        """创建模型列表面板"""
+        panel = QFrame()
+        panel.setStyleSheet("""
+            QFrame {
+                background-color: #252525;
+                border: 2px solid #3d3d3d;
+                border-radius: 12px;
+            }
+        """)
+        
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(15)
+        
+        # 标题
+        title = QLabel("模型列表")
+        title_font = QFont()
+        title_font.setPointSize(16)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        title.setStyleSheet("color: #ffffff; border: none; background-color: transparent;")
+        layout.addWidget(title)
+        
+        # 滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # 禁用水平滚动条
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            QScrollBar:vertical {
+                background-color: #2d2d2d;
+                width: 8px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #8b5cf6;
+                border-radius: 6px;
+                min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #7c3aed;
+            }
+        """)
+        
+        # 模型列表容器
+        self.model_list_widget = QWidget()
+        self.model_list_layout = QVBoxLayout(self.model_list_widget)
+        self.model_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.model_list_layout.setSpacing(10)
+        self.model_list_layout.addStretch()
+        
+        scroll_area.setWidget(self.model_list_widget)
+        layout.addWidget(scroll_area)
+        
+        return panel
+    
+    def load_models(self):
+        """加载模型列表（模拟从服务器获取）"""
+        # 模拟模型数据（实际项目中应该从服务器获取）
+        self.models_data = [
+            {"id": "1", "name": "布丁", "image": "", "pth_path": "assets/weights/buding.pth", "index_path": "logs/buding.index"},
+            {"id": "2", "name": "茶韵", "image": "", "pth_path": "assets/weights/chayun.pth", "index_path": "logs/chayun.index"},
+            {"id": "3", "name": "少女音", "image": "", "pth_path": "assets/weights/shaonv.pth", "index_path": "logs/shaonv.index"},
+            {"id": "4", "name": "御姐音", "image": "", "pth_path": "assets/weights/yujie.pth", "index_path": "logs/yujie.index"},
+            {"id": "5", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
+        ]
+        
+        self.update_model_list()
+    
+    def update_model_list(self):
+        """更新模型列表显示"""
+        # 清除现有卡片
+        while self.model_list_layout.count():
+            child = self.model_list_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        self.model_cards = []
+        
+        # 添加模型卡片
+        for model_data in self.models_data:
+            card = ModelCard(model_data)
+            card.clicked.connect(self.on_model_selected)
+            self.model_cards.append(card)
+            self.model_list_layout.insertWidget(self.model_list_layout.count() - 1, card)
+    
+    def on_model_selected(self, model_data):
+        """模型被选中"""
+        # 更新选中状态
+        for card in self.model_cards:
+            card.set_selected(card.model_data["id"] == model_data["id"])
+        
+        # 更新当前模型
+        self.current_model = model_data
+        
+        # 更新预览区域
+        if self.preview_label:
+            self.preview_label.setText(model_data["name"])
+        
+        # 更新模型路径（如果存在）
+        if "pth_path" in model_data and os.path.exists(model_data["pth_path"]):
+            self.gui_config.pth_path = model_data["pth_path"]
+        if "index_path" in model_data and os.path.exists(model_data["index_path"]):
+            self.gui_config.index_path = model_data["index_path"]
+        
+        # 保存配置
+        self.save_config()
     
     def create_control_panel(self):
         """创建控制面板"""
