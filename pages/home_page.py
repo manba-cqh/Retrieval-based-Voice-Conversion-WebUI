@@ -1,12 +1,14 @@
 """主页"""
 import json
+import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QScrollArea, QGridLayout, QFrame, QStackedWidget,
-    QProgressBar, QMessageBox, QSizePolicy
+    QProgressBar, QMessageBox, QSizePolicy, QSlider
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QUrl
 from PyQt6.QtGui import QFont, QPixmap, QIcon
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 from .base_page import BasePage
 
@@ -55,10 +57,27 @@ class ModelCard(QFrame):
             }
         """)
         
-        # 如果有图片路径，尝试加载（这里先显示占位符）
-        if self.model_image:
-            # TODO: 实际项目中可以加载网络图片或本地图片
-            image_label.setText("🖼️")
+        # 如果有图片路径，尝试加载图片
+        if self.model_image and os.path.exists(self.model_image):
+            try:
+                pixmap = QPixmap(self.model_image)
+                if not pixmap.isNull():
+                    # 缩放图片以适应标签大小，保持宽高比
+                    scaled_pixmap = pixmap.scaled(
+                        180, 180, 
+                        Qt.AspectRatioMode.KeepAspectRatio, 
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    image_label.setPixmap(scaled_pixmap)
+                else:
+                    # 图片加载失败，显示占位符
+                    placeholder = self.model_name[0] if self.model_name else "?"
+                    image_label.setText(f"<div style='font-size: 48px; color: #8b5cf6;'>{placeholder}</div>")
+            except Exception as e:
+                # 图片加载出错，显示占位符
+                print(f"加载图片失败 {self.model_image}: {e}")
+                placeholder = self.model_name[0] if self.model_name else "?"
+                image_label.setText(f"<div style='font-size: 48px; color: #8b5cf6;'>{placeholder}</div>")
         else:
             # 根据名称生成占位符
             placeholder = self.model_name[0] if self.model_name else "?"
@@ -110,6 +129,20 @@ class ModelDetailPage(QWidget):
         self.trial_timer.timeout.connect(self.update_trial_time)
         self.trial_seconds = 0
         self.trial_active = False
+        
+        # 音频播放相关
+        self.audio_player = None
+        self.audio_output = None
+        self.audio_file_path = None
+        self.is_playing = False
+        self.play_btn = None
+        self.time_label = None
+        self.progress_slider = None
+        self.is_slider_dragging = False  # 标记是否正在拖拽滑块
+        
+        # 查找音频文件
+        self.find_audio_file()
+        
         self.setup_ui()
     
     def on_back_clicked(self):
@@ -169,10 +202,10 @@ class ModelDetailPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
-        # 占位图片（实际项目中可以加载真实图片）
-        image_placeholder = QLabel()
-        image_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        image_placeholder.setStyleSheet("""
+        # 显示模型图片
+        image_label = QLabel()
+        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        image_label.setStyleSheet("""
             QLabel {
                 background-color: rgba(0, 0, 0, 0.3);
                 border-radius: 8px;
@@ -180,8 +213,27 @@ class ModelDetailPage(QWidget):
                 font-size: 48px;
             }
         """)
-        image_placeholder.setText("🖼️")
-        layout.addWidget(image_placeholder, 4)
+        image_label.setScaledContents(True)  # 允许自动缩放，保持宽高比
+        
+        # 加载模型图片
+        model_image = self.model_data.get("image", "")
+        if model_image and os.path.exists(model_image):
+            try:
+                pixmap = QPixmap(model_image)
+                if not pixmap.isNull():
+                    image_label.setPixmap(pixmap)
+                else:
+                    # 图片加载失败，显示占位符
+                    image_label.setText("🖼️")
+            except Exception as e:
+                # 图片加载出错，显示占位符
+                print(f"加载详情图片失败 {model_image}: {e}")
+                image_label.setText("🖼️")
+        else:
+            # 没有图片，显示占位符
+            image_label.setText("🖼️")
+        
+        layout.addWidget(image_label, 4)
         
         # 底部信息面板
         info_panel = QWidget()
@@ -303,6 +355,8 @@ class ModelDetailPage(QWidget):
         
         # 播放器控件
         player_layout = QHBoxLayout()
+        player_layout.setContentsMargins(0, 0, 0, 0)
+        player_layout.setSpacing(12)
         
         play_btn = QPushButton("▶")
         play_btn.setFixedSize(40, 40)
@@ -320,21 +374,224 @@ class ModelDetailPage(QWidget):
             }
         """)
         play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        play_btn.clicked.connect(self.on_play_clicked)
+        self.play_btn = play_btn
         player_layout.addWidget(play_btn)
         
-        # 波形图占位
-        waveform = QLabel("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        waveform.setStyleSheet("color: #8b5cf6; font-size: 20px;")
-        player_layout.addWidget(waveform, 1)
+        # 进度条
+        progress_slider = QSlider(Qt.Orientation.Horizontal)
+        progress_slider.setMinimum(0)
+        progress_slider.setMaximum(1000)  # 使用1000作为最大值，便于精确控制
+        progress_slider.setValue(0)
+        progress_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                background-color: #3d3d3d;
+                height: 4px;
+                border-radius: 2px;
+            }
+            QSlider::handle:horizontal {
+                background-color: #8b5cf6;
+                width: 12px;
+                height: 12px;
+                border-radius: 6px;
+                margin: -4px 0;
+            }
+            QSlider::handle:horizontal:hover {
+                background-color: #7c3aed;
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+            }
+            QSlider::sub-page:horizontal {
+                background-color: #8b5cf6;
+                border-radius: 2px;
+            }
+        """)
+        progress_slider.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        progress_slider.sliderPressed.connect(self.on_slider_pressed)
+        progress_slider.sliderReleased.connect(self.on_slider_released)
+        progress_slider.valueChanged.connect(self.on_slider_value_changed)
+        self.progress_slider = progress_slider
+        player_layout.addWidget(progress_slider)
         
         # 时间显示
         time_label = QLabel("0:00 / 0:00")
         # 基础样式由全局样式表提供，只设置特殊字体大小
         time_label.setStyleSheet("font-size: 14px;")
+        self.time_label = time_label
         player_layout.addWidget(time_label)
         
         layout.addLayout(player_layout)
         return section
+    
+    def find_audio_file(self):
+        """查找模型目录下的音频文件"""
+        model_name = self.model_data.get("name", "")
+        if not model_name:
+            return
+        
+        # 支持的音频格式
+        audio_extensions = (".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac")
+        
+        # 先尝试从 net_models 目录查找（主页使用）
+        net_models_dir = os.path.join(os.getcwd(), "net_models")
+        if os.path.exists(net_models_dir):
+            for item in os.listdir(net_models_dir):
+                model_dir_path = os.path.join(net_models_dir, item)
+                if os.path.isdir(model_dir_path):
+                    # 检查目录名或json中的name是否匹配
+                    json_files = [f for f in os.listdir(model_dir_path) if f.endswith(".json")]
+                    if json_files:
+                        try:
+                            json_path = os.path.join(model_dir_path, json_files[0])
+                            with open(json_path, 'r', encoding='utf-8') as f:
+                                model_info = json.load(f)
+                            if model_info.get("name", item) == model_name:
+                                # 查找音频文件
+                                audio_files = [f for f in os.listdir(model_dir_path) 
+                                             if f.lower().endswith(audio_extensions)]
+                                if audio_files:
+                                    self.audio_file_path = os.path.join(model_dir_path, audio_files[0])
+                                    return
+                        except:
+                            pass
+                    # 如果目录名匹配
+                    if item == model_name:
+                        audio_files = [f for f in os.listdir(model_dir_path) 
+                                     if f.lower().endswith(audio_extensions)]
+                        if audio_files:
+                            self.audio_file_path = os.path.join(model_dir_path, audio_files[0])
+                            return
+        
+        # 再尝试从 models 目录查找（管理页使用）
+        models_dir = os.path.join(os.getcwd(), "models")
+        if os.path.exists(models_dir):
+            for item in os.listdir(models_dir):
+                model_dir_path = os.path.join(models_dir, item)
+                if os.path.isdir(model_dir_path):
+                    # 检查目录名或json中的name是否匹配
+                    json_files = [f for f in os.listdir(model_dir_path) if f.endswith(".json")]
+                    if json_files:
+                        try:
+                            json_path = os.path.join(model_dir_path, json_files[0])
+                            with open(json_path, 'r', encoding='utf-8') as f:
+                                model_info = json.load(f)
+                            if model_info.get("name", item) == model_name:
+                                # 查找音频文件
+                                audio_files = [f for f in os.listdir(model_dir_path) 
+                                             if f.lower().endswith(audio_extensions)]
+                                if audio_files:
+                                    self.audio_file_path = os.path.join(model_dir_path, audio_files[0])
+                                    return
+                        except:
+                            pass
+                    # 如果目录名匹配
+                    if item == model_name:
+                        audio_files = [f for f in os.listdir(model_dir_path) 
+                                     if f.lower().endswith(audio_extensions)]
+                        if audio_files:
+                            self.audio_file_path = os.path.join(model_dir_path, audio_files[0])
+                            return
+    
+    def on_play_clicked(self):
+        """播放按钮点击"""
+        if not self.audio_file_path or not os.path.exists(self.audio_file_path):
+            QMessageBox.warning(self, "提示", "未找到音频文件")
+            return
+        
+        if not self.audio_player:
+            # 初始化音频播放器
+            self.audio_output = QAudioOutput()
+            self.audio_player = QMediaPlayer()
+            self.audio_player.setAudioOutput(self.audio_output)
+            self.audio_player.mediaStatusChanged.connect(self.on_media_status_changed)
+            self.audio_player.positionChanged.connect(self.on_position_changed)
+            self.audio_player.durationChanged.connect(self.on_duration_changed)
+            self.audio_player.playbackStateChanged.connect(self.on_playback_state_changed)
+        
+        if self.is_playing:
+            # 暂停播放
+            self.audio_player.pause()
+            self.is_playing = False
+            if self.play_btn:
+                self.play_btn.setText("▶")
+        else:
+            # 开始播放
+            if self.audio_player.source() != QUrl.fromLocalFile(self.audio_file_path):
+                self.audio_player.setSource(QUrl.fromLocalFile(self.audio_file_path))
+            self.audio_player.play()
+            self.is_playing = True
+            if self.play_btn:
+                self.play_btn.setText("⏸")
+    
+    def on_media_status_changed(self, status):
+        """媒体状态改变"""
+        from PyQt6.QtMultimedia import QMediaPlayer
+        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self.is_playing = False
+            if self.play_btn:
+                self.play_btn.setText("▶")
+            if self.time_label:
+                self.time_label.setText("0:00 / 0:00")
+    
+    def on_position_changed(self, position):
+        """播放位置改变"""
+        if self.audio_player and self.time_label:
+            duration = self.audio_player.duration()
+            if duration > 0:
+                pos_min = position // 60000
+                pos_sec = (position % 60000) // 1000
+                dur_min = duration // 60000
+                dur_sec = (duration % 60000) // 1000
+                self.time_label.setText(f"{pos_min}:{pos_sec:02d} / {dur_min}:{dur_sec:02d}")
+                
+                # 更新进度条（如果不在拖拽状态）
+                if not self.is_slider_dragging and self.progress_slider:
+                    progress_value = int((position / duration) * 1000)
+                    self.progress_slider.setValue(progress_value)
+    
+    def on_duration_changed(self, duration):
+        """总时长改变"""
+        if self.time_label and duration > 0:
+            dur_min = duration // 60000
+            dur_sec = (duration % 60000) // 1000
+            self.time_label.setText(f"0:00 / {dur_min}:{dur_sec:02d}")
+    
+    def on_slider_pressed(self):
+        """滑块按下"""
+        self.is_slider_dragging = True
+    
+    def on_slider_released(self):
+        """滑块释放"""
+        self.is_slider_dragging = False
+        if self.audio_player and self.progress_slider:
+            duration = self.audio_player.duration()
+            if duration > 0:
+                # 根据滑块位置跳转到对应时间
+                position = int((self.progress_slider.value() / 1000.0) * duration)
+                self.audio_player.setPosition(position)
+    
+    def on_slider_value_changed(self, value):
+        """滑块值改变（仅在拖拽时更新显示，不跳转）"""
+        if self.is_slider_dragging and self.audio_player and self.time_label:
+            duration = self.audio_player.duration()
+            if duration > 0:
+                position = int((value / 1000.0) * duration)
+                pos_min = position // 60000
+                pos_sec = (position % 60000) // 1000
+                dur_min = duration // 60000
+                dur_sec = (duration % 60000) // 1000
+                self.time_label.setText(f"{pos_min}:{pos_sec:02d} / {dur_min}:{dur_sec:02d}")
+    
+    def on_playback_state_changed(self, state):
+        """播放状态改变"""
+        from PyQt6.QtMultimedia import QMediaPlayer
+        if state == QMediaPlayer.PlaybackState.StoppedState:
+            self.is_playing = False
+            if self.play_btn:
+                self.play_btn.setText("▶")
+            if self.progress_slider:
+                self.progress_slider.setValue(0)
     
     def create_trial_section(self):
         """创建试用区块"""
@@ -420,7 +677,7 @@ class ModelDetailPage(QWidget):
         download_layout = QHBoxLayout()
         
         download_btn = QPushButton("点击按钮即可开始下载")
-        download_btn.setFixedSize(132, 36)
+        download_btn.setFixedSize(164, 36)
         download_btn.setStyleSheet("""
             QPushButton {
                 background-color: #8b5cf6;
@@ -440,7 +697,7 @@ class ModelDetailPage(QWidget):
         download_layout.addWidget(download_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         
         alt_download_btn = QPushButton("备用下载通道")
-        alt_download_btn.setFixedSize(132, 36)
+        alt_download_btn.setFixedSize(164, 36)
         alt_download_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3d3d3d;
@@ -539,7 +796,7 @@ class HomePage(BasePage):
         # 基础样式由全局样式表提供，只设置特殊样式
         scroll_area.setStyleSheet("""
             QScrollArea {
-                padding-left: -12px;
+                border: none;
             }
             QScrollBar:vertical {
                 background-color: #2d2d2d;
@@ -558,10 +815,18 @@ class HomePage(BasePage):
         
         # 网格容器
         grid_widget = QWidget()
-        self.grid_layout = QGridLayout(grid_widget)
+        grid_container = QHBoxLayout()
+        grid_container.setContentsMargins(12, 0, 0, 0)  # 左边距 12px，避免被遮挡
+        grid_container.setSpacing(0)
+        
+        self.grid_layout = QGridLayout()
         self.grid_layout.setSpacing(20)
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
         
+        grid_container.addLayout(self.grid_layout)
+        grid_container.addStretch()  # 添加右侧拉伸，使卡片靠左对齐
+        
+        grid_widget.setLayout(grid_container)
         scroll_area.setWidget(grid_widget)
         list_layout.addWidget(scroll_area)
         
@@ -651,47 +916,103 @@ class HomePage(BasePage):
         return toolbar
     
     def load_models(self):
-        """从服务器加载模型数据（模拟）"""
-        # 模拟从服务器获取数据
-        self.models_data = self.fetch_models_from_server()
+        """从net_models目录加载模型数据"""
+        self.models_data = self.fetch_models_from_net_models_dir()
         self.filtered_models = self.models_data.copy()
         self.update_model_grid()
     
-    def fetch_models_from_server(self):
-        """从服务器获取模型数据（模拟）
+    def fetch_models_from_net_models_dir(self):
+        """从net_models目录获取模型数据"""
+        net_models_dir = os.path.join(os.getcwd(), "net_models")
+        models_data = []
         
-        实际项目中可以替换为真实的API调用：
-        import requests
-        try:
-            response = requests.get("https://api.example.com/models")
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            print(f"获取模型数据失败: {e}")
-            return []
-        """
-        # 模拟API调用延迟
-        # 实际项目中这里会是异步请求
+        # 如果net_models目录不存在，返回空列表
+        if not os.path.exists(net_models_dir):
+            return models_data
         
-        # 返回模拟数据
-        return [
-            {"id": "1", "name": "茶可", "category": "入门", "image": "", "description": "温柔甜美的声音"},
-            {"id": "2", "name": "云深", "category": "入门", "image": "", "description": "清新自然的声音"},
-            {"id": "3", "name": "少女1", "category": "入门", "image": "", "description": "活泼可爱的声音"},
-            {"id": "4", "name": "大乔", "category": "真人拟声", "image": "", "description": "成熟优雅的声音"},
-            {"id": "5", "name": "男主角", "category": "真人拟声", "image": "", "description": "磁性低沉的男声"},
-            {"id": "6", "name": "小团团", "category": "入门", "image": "", "description": "萌系可爱声音"},
-            {"id": "7", "name": "兮梦", "category": "入门", "image": "", "description": "梦幻空灵的声音"},
-            {"id": "8", "name": "御姐", "category": "真人拟声", "image": "", "description": "成熟御姐音"},
-            {"id": "9", "name": "萌妹", "category": "入门", "image": "", "description": "软萌甜美的声音"},
-            {"id": "10", "name": "碎碎", "category": "入门", "image": "", "description": "温柔细腻的声音"},
-            {"id": "11", "name": "软妹", "category": "入门", "image": "", "description": "软糯可爱的声音"},
-            {"id": "12", "name": "少萝", "category": "入门", "image": "", "description": "萝莉音色"},
-            {"id": "13", "name": "少御", "category": "真人拟声", "image": "", "description": "年轻御姐音"},
-            {"id": "14", "name": "少女2", "category": "入门", "image": "", "description": "青春活力的声音"},
-            {"id": "15", "name": "布布", "category": "入门", "image": "", "description": "活泼开朗的声音"},
-            {"id": "16", "name": "海绵宝宝", "category": "入门", "image": "", "description": "搞怪有趣的声音"},
-        ]
+        # 扫描net_models目录下的所有子目录
+        model_id = 1
+        for item in os.listdir(net_models_dir):
+            model_dir_path = os.path.join(net_models_dir, item)
+            
+            # 只处理目录
+            if not os.path.isdir(model_dir_path):
+                continue
+            
+            # 查找.pth文件（文件名可以是任意的，只要扩展名是.pth即可）
+            pth_files = [f for f in os.listdir(model_dir_path) if f.endswith(".pth")]
+            if not pth_files:
+                continue  # 如果没有.pth文件，跳过这个目录
+            
+            # 查找index文件（文件名可以是任意的，只要扩展名是.index即可）
+            index_files = [f for f in os.listdir(model_dir_path) if f.endswith(".index")]
+            
+            # 查找json信息文件
+            json_files = [f for f in os.listdir(model_dir_path) if f.endswith(".json")]
+            
+            # 查找图片文件（支持常见图片格式）
+            image_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
+            image_files = [f for f in os.listdir(model_dir_path) 
+                          if f.lower().endswith(image_extensions)]
+            
+            # 使用第一个找到的.pth文件
+            pth_path = os.path.join(model_dir_path, pth_files[0])
+            
+            # 使用第一个找到的index文件，如果没有则设为空字符串
+            index_path = os.path.join(model_dir_path, index_files[0]) if index_files else ""
+            
+            # 读取json信息文件（如果存在）
+            model_info = {}
+            if json_files:
+                json_path = os.path.join(model_dir_path, json_files[0])
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        model_info = json.load(f)
+                except Exception as e:
+                    print(f"读取模型信息文件失败 {json_path}: {e}")
+            
+            # 构建模型数据
+            model_name = model_info.get("name", item)  # 如果json中没有name，使用目录名
+            
+            # 确定模型图片路径（优先级：json中的image > 目录下的图片文件）
+            model_image = model_info.get("image", "")
+            if model_image:
+                # 如果json中指定了图片路径
+                if not os.path.isabs(model_image):
+                    # 如果是相对路径，转换为相对于模型目录的路径
+                    model_image = os.path.join(model_dir_path, model_image)
+            elif image_files:
+                # 如果json中没有指定，但目录下有图片文件，使用第一个找到的图片
+                model_image = os.path.join(model_dir_path, image_files[0])
+            else:
+                # 没有图片
+                model_image = ""
+            
+            # 获取分类信息（从json中读取，默认为"入门"）
+            category = model_info.get("category", "入门")
+            
+            # 构建模型数据（兼容主页的数据结构）
+            model_data = {
+                "id": str(model_id),
+                "name": model_name,
+                "image": model_image,
+                "description": model_info.get("description", ""),
+                "category": category,
+                "version": model_info.get("version", "V1"),
+                "sample_rate": model_info.get("sample_rate", "48K"),
+                "pth_path": pth_path,
+                "index_path": index_path,
+            }
+            
+            # 添加json中的其他信息（如果有）
+            for key in ["price", "category_name"]:
+                if key in model_info:
+                    model_data[key] = model_info[key]
+            
+            models_data.append(model_data)
+            model_id += 1
+        
+        return models_data
     
     def on_category_changed(self, category):
         """分类改变"""
@@ -752,9 +1073,11 @@ class HomePage(BasePage):
         
         self.filtered_models = []
         for model in self.models_data:
-            # 分类过滤
-            if self.current_category != "全部" and model["category"] != self.current_category:
-                continue
+            # 分类过滤（支持多个分类，用分号分隔）
+            if self.current_category != "全部":
+                model_categories = [cat.strip() for cat in model.get("category", "").split(";")]
+                if self.current_category not in model_categories:
+                    continue
             
             # 搜索过滤
             if search_text and search_text not in model["name"].lower():
@@ -782,7 +1105,11 @@ class HomePage(BasePage):
             col = i % columns
             self.grid_layout.addWidget(card, row, col)
         
-        # 添加弹性空间
+        # 设置列的对齐方式，使卡片靠左对齐
+        for col in range(columns):
+            self.grid_layout.setColumnStretch(col, 0)  # 不拉伸列，让卡片靠左
+        
+        # 添加弹性空间（只在最后一行）
         self.grid_layout.setRowStretch(self.grid_layout.rowCount(), 1)
     
     def on_model_detail_clicked(self, model_id):

@@ -149,7 +149,7 @@ class ModelCard(QFrame):
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(2)
         
         # 头像区域
         image_label = QLabel()
@@ -163,10 +163,27 @@ class ModelCard(QFrame):
             }
         """)
         
-        # 如果有图片路径，尝试加载（这里先显示占位符）
-        if self.model_image:
-            # TODO: 实际项目中可以加载网络图片或本地图片
-            image_label.setText("🖼️")
+        # 如果有图片路径，尝试加载图片
+        if self.model_image and os.path.exists(self.model_image):
+            try:
+                pixmap = QPixmap(self.model_image)
+                if not pixmap.isNull():
+                    # 缩放图片以适应标签大小，保持宽高比
+                    scaled_pixmap = pixmap.scaled(
+                        100, 100, 
+                        Qt.AspectRatioMode.KeepAspectRatio, 
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    image_label.setPixmap(scaled_pixmap)
+                else:
+                    # 图片加载失败，显示占位符
+                    placeholder = self.model_name[0] if self.model_name else "?"
+                    image_label.setText(f"<div style='font-size: 64px; color: #8b5cf6;'>{placeholder}</div>")
+            except Exception as e:
+                # 图片加载出错，显示占位符
+                print(f"加载图片失败 {self.model_image}: {e}")
+                placeholder = self.model_name[0] if self.model_name else "?"
+                image_label.setText(f"<div style='font-size: 64px; color: #8b5cf6;'>{placeholder}</div>")
         else:
             # 根据名称生成占位符
             placeholder = self.model_name[0] if self.model_name else "?"
@@ -175,13 +192,20 @@ class ModelCard(QFrame):
         image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(image_label)
         
+        right_layout = QVBoxLayout()
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
         # 名称
         name_label = QLabel(self.model_name)
-        name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        name_label.setStyleSheet("font-size: 26px; font-weight: bold; padding: 3px; border: none; background-color: transparent;")
-        layout.addWidget(name_label)
-        
-        layout.addStretch()
+        name_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        name_label.setStyleSheet("font-size: 26px; font-weight: bold; padding: 0px 3px; border: none; background-color: transparent;")
+        right_layout.addWidget(name_label)
+        content_label = QLabel(self.model_data.get("description", ""))
+        content_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        content_label.setWordWrap(True)
+        content_label.setStyleSheet("font-size: 12px; padding: 0px; border: none; background-color: transparent; padding: 0px 5px;")
+        right_layout.addWidget(content_label)
+        layout.addLayout(right_layout)
     
     def mousePressEvent(self, event):
         """鼠标点击事件"""
@@ -308,7 +332,8 @@ class InferencePage(QWidget):
         self.models_data = []
         self.current_model = None
         self.model_cards = []
-        self.preview_label = None
+        self.preview_image_label = None
+        self.preview_overlay = None  # 预览区域底部蒙层
         
         # 初始化设备列表
         self.update_devices()
@@ -321,6 +346,10 @@ class InferencePage(QWidget):
         
         # 加载模型列表
         self.load_models()
+
+        # 如果有模型，自动选中第一个，显示蒙层
+        if self.models_data:
+            self.on_model_selected(self.models_data[0])
         
         # 定时器更新推理时间
         self.timer = QTimer()
@@ -341,7 +370,7 @@ class InferencePage(QWidget):
         right_layout.setSpacing(12)
 
         main_layout.addWidget(model_list_panel, 1)
-        main_layout.addLayout(right_layout, 3)
+        main_layout.addLayout(right_layout, 2)
         
         # 右侧区域
         # 上侧区域
@@ -349,8 +378,7 @@ class InferencePage(QWidget):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(12)
         # 左上：大预览区域
-        large_preview = self.create_preview_area("布丁")
-        self.preview_label = large_preview.findChild(AdaptiveLabel)
+        large_preview = self.create_preview_area()
         top_layout.addWidget(large_preview, 1)
         # 右下：音频设备和控制
         control_panel = self.create_audio_device_panel()
@@ -361,7 +389,7 @@ class InferencePage(QWidget):
         bottom_panel = self.create_control_panel()
         right_layout.addWidget(bottom_panel, 1)
     
-    def create_preview_area(self, text):
+    def create_preview_area(self):
         """创建预览区域（高度占满，宽度等于高度，保持正方形）"""
         preview = SquareFrame()
         preview.setStyleSheet("""
@@ -375,17 +403,132 @@ class InferencePage(QWidget):
         # 设置大小策略，让高度可以扩展，宽度根据高度调整
         preview.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         
-        layout = QVBoxLayout(preview)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # 使用相对定位的布局，以便蒙层可以覆盖在内容上方
+        preview.setLayout(QVBoxLayout())
+        preview.layout().setContentsMargins(0, 0, 0, 0)
+        preview.layout().setSpacing(0)
         
-        # 使用自适应字体大小的Label
-        label = AdaptiveLabel(text)
-        label._base_font_size = 0.4
+        # 内容区域（图片或文本）
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
         
-        # 基础样式由全局样式表提供，只设置特殊颜色
-        label.setStyleSheet("color: #ffffff; border: none;")
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(label)
+        # 图片标签（用于显示模型图片）
+        image_layout = QVBoxLayout()
+        image_layout.setContentsMargins(0, 0, 0, 0)
+        image_layout.setSpacing(0)
+        image_label = AdaptiveLabel()
+        image_label.setLayout(image_layout)
+        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        image_label.setStyleSheet("""
+            QLabel {
+                background-color: transparent;
+                border: none;
+            }
+        """)
+        image_label.setScaledContents(True)  # 允许自动缩放，保持宽高比
+        content_layout.addWidget(image_label)
+        self.preview_image_label = image_label
+        
+        preview.layout().addWidget(content_widget)
+        
+        # 底部蒙层（显示模型信息）
+        overlay = QWidget(preview)
+        overlay.setStyleSheet("""
+            QWidget {
+                background-color: rgba(0, 0, 0, 0.7);
+                border: none;
+                margin: 0;
+                padding: 2px;
+            }
+        """)
+        
+        overlay_layout = QVBoxLayout(overlay)
+        overlay_layout.setContentsMargins(0, 0, 0, 0)
+        overlay_layout.setSpacing(6)
+        
+        # 模型名称
+        name_label = QLabel()
+        name_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 18px;
+                font-weight: bold;
+                border: none;
+                background-color: transparent;
+            }
+        """)
+        name_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        overlay_layout.addWidget(name_label)
+        
+        # 介绍/描述
+        desc_label = QLabel()
+        desc_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 12px;
+                border: none;
+                background-color: transparent;
+            }
+        """)
+        desc_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        desc_label.setWordWrap(True)
+        overlay_layout.addWidget(desc_label)
+        
+        # 信息行（版本、采样率、类别）
+        info_layout = QHBoxLayout()
+        info_layout.setSpacing(12)
+        
+        version_label = QLabel()
+        version_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 11px;
+                border: none;
+                background-color: transparent;
+            }
+        """)
+        info_layout.addWidget(version_label)
+        
+        sample_rate_label = QLabel()
+        sample_rate_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 11px;
+                border: none;
+                background-color: transparent;
+            }
+        """)
+        info_layout.addWidget(sample_rate_label)
+        
+        category_label = QLabel()
+        category_label.setStyleSheet("""
+            QLabel {
+                color: #ffffff;
+                font-size: 11px;
+                border: none;
+                background-color: transparent;
+            }
+        """)
+        info_layout.addWidget(category_label)
+        
+        info_layout.addStretch()
+        overlay_layout.addLayout(info_layout)
+        
+        overlay_layout.addStretch()
+
+        image_layout.addStretch()
+        overlay.setFixedHeight(96)
+        image_layout.addWidget(overlay)
+        
+        # 保存标签引用
+        self.preview_overlay = overlay
+        self.preview_overlay_name = name_label
+        self.preview_overlay_desc = desc_label
+        self.preview_overlay_version = version_label
+        self.preview_overlay_sample_rate = sample_rate_label
+        self.preview_overlay_category = category_label
         
         return preview
     
@@ -451,23 +594,89 @@ class InferencePage(QWidget):
         return panel
     
     def load_models(self):
-        """加载模型列表（模拟从服务器获取）"""
-        # 模拟模型数据（实际项目中应该从服务器获取）
-        self.models_data = [
-            {"id": "1", "name": "布丁", "image": "", "pth_path": "assets/weights/buding.pth", "index_path": "logs/buding.index"},
-            {"id": "2", "name": "茶韵", "image": "", "pth_path": "assets/weights/chayun.pth", "index_path": "logs/chayun.index"},
-            {"id": "3", "name": "少女音", "image": "", "pth_path": "assets/weights/shaonv.pth", "index_path": "logs/shaonv.index"},
-            {"id": "4", "name": "御姐音", "image": "", "pth_path": "assets/weights/yujie.pth", "index_path": "logs/yujie.index"},
-            {"id": "5", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
-            {"id": "6", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
-            {"id": "7", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
-            {"id": "8", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
-            {"id": "9", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
-            {"id": "10", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
-            {"id": "11", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
-            {"id": "12", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
-            {"id": "13", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
-        ]
+        """从models目录加载模型列表"""
+        models_dir = os.path.join(os.getcwd(), "models")
+        self.models_data = []
+        
+        # 如果models目录不存在，创建它
+        if not os.path.exists(models_dir):
+            os.makedirs(models_dir, exist_ok=True)
+            self.update_model_list()
+            return
+        
+        # 扫描models目录下的所有子目录
+        model_id = 1
+        for item in os.listdir(models_dir):
+            model_dir_path = os.path.join(models_dir, item)
+            
+            # 只处理目录
+            if not os.path.isdir(model_dir_path):
+                continue
+            
+            # 查找.pth文件（文件名可以是任意的，只要扩展名是.pth即可）
+            pth_files = [f for f in os.listdir(model_dir_path) if f.endswith(".pth")]
+            if not pth_files:
+                continue  # 如果没有.pth文件，跳过这个目录
+            
+            # 查找index文件（文件名可以是任意的，只要扩展名是.index即可）
+            index_files = [f for f in os.listdir(model_dir_path) if f.endswith(".index")]
+            
+            # 查找json信息文件
+            json_files = [f for f in os.listdir(model_dir_path) if f.endswith(".json")]
+            
+            # 查找图片文件（支持常见图片格式）
+            image_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
+            image_files = [f for f in os.listdir(model_dir_path) 
+                          if f.lower().endswith(image_extensions)]
+            
+            # 使用第一个找到的.pth文件（如果目录中有多个.pth文件，使用第一个）
+            pth_path = os.path.join(model_dir_path, pth_files[0])
+            
+            # 使用第一个找到的index文件，如果没有则设为空字符串（如果目录中有多个.index文件，使用第一个）
+            index_path = os.path.join(model_dir_path, index_files[0]) if index_files else ""
+            
+            # 读取json信息文件（如果存在）
+            model_info = {}
+            if json_files:
+                json_path = os.path.join(model_dir_path, json_files[0])
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        model_info = json.load(f)
+                except Exception as e:
+                    print(f"读取模型信息文件失败 {json_path}: {e}")
+            
+            # 构建模型数据
+            model_name = model_info.get("name", item)  # 如果json中没有name，使用目录名
+            
+            # 确定模型图片路径（优先级：json中的image > 目录下的图片文件）
+            model_image = model_info.get("image", "")
+            if model_image:
+                # 如果json中指定了图片路径
+                if not os.path.isabs(model_image):
+                    # 如果是相对路径，转换为相对于模型目录的路径
+                    model_image = os.path.join(model_dir_path, model_image)
+            elif image_files:
+                # 如果json中没有指定，但目录下有图片文件，使用第一个找到的图片
+                model_image = os.path.join(model_dir_path, image_files[0])
+            else:
+                # 没有图片
+                model_image = ""
+            
+            model_data = {
+                "id": str(model_id),
+                "name": model_name,
+                "image": model_image,
+                "pth_path": pth_path,
+                "index_path": index_path,
+            }
+            
+            # 添加json中的其他信息（如果有）
+            for key in ["description", "category", "version", "sample_rate"]:
+                if key in model_info:
+                    model_data[key] = model_info[key]
+            
+            self.models_data.append(model_data)
+            model_id += 1
         
         self.update_model_list()
     
@@ -486,7 +695,7 @@ class InferencePage(QWidget):
             card = ModelCard(model_data)
             card.clicked.connect(self.on_model_selected)
             self.model_cards.append(card)
-            self.model_list_layout.insertWidget(self.model_list_layout.count() - 1, card)
+            self.model_list_layout.addWidget(card)
         self.model_list_layout.addStretch()
     
     def on_model_selected(self, model_data):
@@ -499,8 +708,47 @@ class InferencePage(QWidget):
         self.current_model = model_data
         
         # 更新预览区域
-        if self.preview_label:
-            self.preview_label.setText(model_data["name"])
+        model_image = model_data.get("image", "")
+        
+        # 如果有图片，显示图片；否则显示文本
+        if model_image and os.path.exists(model_image):
+            pixmap = QPixmap(model_image)
+            self.preview_image_label.setPixmap(pixmap)
+        else:
+            # 图片加载失败，显示文本
+            self.preview_image_label.setText(model_data["name"])
+        
+        # 更新底部蒙层信息
+        if self.preview_overlay:
+            # 更新模型名称
+            if self.preview_overlay_name:
+                self.preview_overlay_name.setText(model_data.get("name", "未知"))
+            
+            # 更新介绍/描述
+            if self.preview_overlay_desc:
+                description = model_data.get("description", "")
+                if description:
+                    self.preview_overlay_desc.setText(f"介绍: {description}")
+                else:
+                    self.preview_overlay_desc.setText("")
+            
+            # 更新版本
+            if self.preview_overlay_version:
+                version = model_data.get("version", "V1")
+                self.preview_overlay_version.setText(f"版本: {version}")
+            
+            # 更新采样率
+            if self.preview_overlay_sample_rate:
+                sample_rate = model_data.get("sample_rate", "48K")
+                self.preview_overlay_sample_rate.setText(f"采样率: {sample_rate}")
+            
+            # 更新类别（如果包含多个分类，只显示第一个）
+            if self.preview_overlay_category:
+                category = model_data.get("category", "免费音色")
+                # 如果包含多个分类（用分号分隔），只显示第一个
+                if ";" in category:
+                    category = category.split(";")[0].strip()
+                self.preview_overlay_category.setText(f"类别: {category}")
         
         # 更新模型路径（如果存在）
         if "pth_path" in model_data and os.path.exists(model_data["pth_path"]):

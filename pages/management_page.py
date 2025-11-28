@@ -1,5 +1,6 @@
 """管理页面"""
 import json
+import os
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QScrollArea, QGridLayout, QFrame, QStackedWidget,
@@ -57,7 +58,7 @@ class ManagementPage(BasePage):
         # 基础样式由全局样式表提供，只设置特殊样式
         scroll_area.setStyleSheet("""
             QScrollArea {
-                padding-left: -12px;
+                border: none;
             }
             QScrollBar:vertical {
                 background-color: #2d2d2d;
@@ -76,10 +77,18 @@ class ManagementPage(BasePage):
         
         # 网格容器
         grid_widget = QWidget()
-        self.grid_layout = QGridLayout(grid_widget)
+        grid_container = QHBoxLayout()
+        grid_container.setContentsMargins(12, 0, 0, 0)  # 左边距 12px，避免被遮挡
+        grid_container.setSpacing(0)
+        
+        self.grid_layout = QGridLayout()
         self.grid_layout.setSpacing(20)
         self.grid_layout.setContentsMargins(0, 0, 0, 0)
         
+        grid_container.addLayout(self.grid_layout)
+        grid_container.addStretch()  # 添加右侧拉伸，使卡片靠左对齐
+        
+        grid_widget.setLayout(grid_container)
         scroll_area.setWidget(grid_widget)
         list_layout.addWidget(scroll_area)
         
@@ -195,49 +204,110 @@ class ManagementPage(BasePage):
         return toolbar
     
     def load_models(self):
-        """从服务器加载模型数据（模拟）"""
-        # 模拟从服务器获取数据
-        self.models_data = self.fetch_models_from_server()
+        """从models目录加载模型数据"""
+        self.models_data = self.fetch_models_from_models_dir()
         self.filtered_models = self.models_data.copy()
         self.update_model_grid()
     
-    def fetch_models_from_server(self):
-        """从服务器获取模型数据（模拟）
+    def fetch_models_from_models_dir(self):
+        """从models目录获取模型数据"""
+        models_dir = os.path.join(os.getcwd(), "models")
+        models_data = []
         
-        实际项目中可以替换为真实的API调用：
-        import requests
-        try:
-            response = requests.get("https://api.example.com/management/models")
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            print(f"获取模型数据失败: {e}")
-            return []
-        """
-        # 模拟API调用延迟
-        # 实际项目中这里会是异步请求
+        # 如果models目录不存在，返回空列表
+        if not os.path.exists(models_dir):
+            return models_data
         
-        # 返回模拟数据（管理页面可能包含更多管理相关的信息）
-        return [
-            {"id": "m1", "name": "茶可", "category": "免费音色", "image": "", "description": "温柔甜美的声音", "is_official": False, "is_favorite": False},
-            {"id": "m2", "name": "云深", "category": "免费音色", "image": "", "description": "清新自然的声音", "is_official": False, "is_favorite": True},
-            {"id": "m3", "name": "官方音色A", "category": "官方音色", "image": "", "description": "官方认证的高质量音色", "is_official": True, "is_favorite": False},
-            {"id": "m4", "name": "官方音色B", "category": "官方音色", "image": "", "description": "官方认证的专业音色", "is_official": True, "is_favorite": True},
-            {"id": "m5", "name": "少女1", "category": "免费音色", "image": "", "description": "活泼可爱的声音", "is_official": False, "is_favorite": False},
-            {"id": "m6", "name": "大乔", "category": "官方音色", "image": "", "description": "成熟优雅的声音", "is_official": True, "is_favorite": False},
-            {"id": "m7", "name": "男主角", "category": "官方音色", "image": "", "description": "磁性低沉的男声", "is_official": True, "is_favorite": True},
-            {"id": "m8", "name": "小团团", "category": "免费音色", "image": "", "description": "萌系可爱声音", "is_official": False, "is_favorite": True},
-            {"id": "m9", "name": "兮梦", "category": "免费音色", "image": "", "description": "梦幻空灵的声音", "is_official": False, "is_favorite": False},
-            {"id": "m10", "name": "御姐", "category": "官方音色", "image": "", "description": "成熟御姐音", "is_official": True, "is_favorite": False},
-            {"id": "m11", "name": "萌妹", "category": "免费音色", "image": "", "description": "软萌甜美的声音", "is_official": False, "is_favorite": True},
-            {"id": "m12", "name": "碎碎", "category": "免费音色", "image": "", "description": "温柔细腻的声音", "is_official": False, "is_favorite": False},
-            {"id": "m13", "name": "软妹", "category": "免费音色", "image": "", "description": "软糯可爱的声音", "is_official": False, "is_favorite": True},
-            {"id": "m14", "name": "少萝", "category": "免费音色", "image": "", "description": "萝莉音色", "is_official": False, "is_favorite": False},
-            {"id": "m15", "name": "少御", "category": "官方音色", "image": "", "description": "年轻御姐音", "is_official": True, "is_favorite": True},
-            {"id": "m16", "name": "少女2", "category": "免费音色", "image": "", "description": "青春活力的声音", "is_official": False, "is_favorite": False},
-            {"id": "m17", "name": "布布", "category": "免费音色", "image": "", "description": "活泼开朗的声音", "is_official": False, "is_favorite": True},
-            {"id": "m18", "name": "海绵宝宝", "category": "免费音色", "image": "", "description": "搞怪有趣的声音", "is_official": False, "is_favorite": False},
-        ]
+        # 扫描models目录下的所有子目录
+        model_id = 1
+        for item in os.listdir(models_dir):
+            model_dir_path = os.path.join(models_dir, item)
+            
+            # 只处理目录
+            if not os.path.isdir(model_dir_path):
+                continue
+            
+            # 查找.pth文件（文件名可以是任意的，只要扩展名是.pth即可）
+            pth_files = [f for f in os.listdir(model_dir_path) if f.endswith(".pth")]
+            if not pth_files:
+                continue  # 如果没有.pth文件，跳过这个目录
+            
+            # 查找index文件（文件名可以是任意的，只要扩展名是.index即可）
+            index_files = [f for f in os.listdir(model_dir_path) if f.endswith(".index")]
+            
+            # 查找json信息文件
+            json_files = [f for f in os.listdir(model_dir_path) if f.endswith(".json")]
+            
+            # 查找图片文件（支持常见图片格式）
+            image_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
+            image_files = [f for f in os.listdir(model_dir_path) 
+                          if f.lower().endswith(image_extensions)]
+            
+            # 使用第一个找到的.pth文件
+            pth_path = os.path.join(model_dir_path, pth_files[0])
+            
+            # 使用第一个找到的index文件，如果没有则设为空字符串
+            index_path = os.path.join(model_dir_path, index_files[0]) if index_files else ""
+            
+            # 读取json信息文件（如果存在）
+            model_info = {}
+            if json_files:
+                json_path = os.path.join(model_dir_path, json_files[0])
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        model_info = json.load(f)
+                except Exception as e:
+                    print(f"读取模型信息文件失败 {json_path}: {e}")
+            
+            # 构建模型数据
+            model_name = model_info.get("name", item)  # 如果json中没有name，使用目录名
+            
+            # 确定模型图片路径（优先级：json中的image > 目录下的图片文件）
+            model_image = model_info.get("image", "")
+            if model_image:
+                # 如果json中指定了图片路径
+                if not os.path.isabs(model_image):
+                    # 如果是相对路径，转换为相对于模型目录的路径
+                    model_image = os.path.join(model_dir_path, model_image)
+            elif image_files:
+                # 如果json中没有指定，但目录下有图片文件，使用第一个找到的图片
+                model_image = os.path.join(model_dir_path, image_files[0])
+            else:
+                # 没有图片
+                model_image = ""
+            
+            # 获取分类信息（从json中读取，默认为"免费音色"，支持多个分类用分号分隔）
+            category = model_info.get("category", "免费音色")
+            # 判断是否为官方音色（如果category中包含"官方音色"）
+            categories = [cat.strip() for cat in category.split(";")]
+            is_official = "官方音色" in categories
+            # 判断是否为收藏（如果category中包含"收藏"）
+            is_favorite = "收藏" in categories
+            
+            # 构建模型数据（兼容管理页面的数据结构）
+            model_data = {
+                "id": f"m{model_id}",
+                "name": model_name,
+                "image": model_image,
+                "description": model_info.get("description", ""),
+                "category": category,
+                "is_official": is_official,
+                "is_favorite": is_favorite,  # 从category字段中判断，如果包含"收藏"则为True
+                "version": model_info.get("version", "V1"),
+                "sample_rate": model_info.get("sample_rate", "48K"),
+                "pth_path": pth_path,
+                "index_path": index_path,
+            }
+            
+            # 添加json中的其他信息（如果有）
+            for key in ["price", "category_name"]:
+                if key in model_info:
+                    model_data[key] = model_info[key]
+            
+            models_data.append(model_data)
+            model_id += 1
+        
+        return models_data
     
     def on_category_changed(self, category):
         """分类改变"""
@@ -304,18 +374,24 @@ class ManagementPage(BasePage):
         
         self.filtered_models = []
         for model in self.models_data:
-            # 分类过滤
+            # 分类过滤（支持多个分类，用分号分隔）
             if self.current_category == "全部音色":
                 # 显示所有
                 pass
             elif self.current_category == "官方音色":
-                if not model.get("is_official", False):
+                # 检查category字段中是否包含"官方音色"，或is_official字段
+                model_categories = [cat.strip() for cat in model.get("category", "").split(";")]
+                if "官方音色" not in model_categories and not model.get("is_official", False):
                     continue
             elif self.current_category == "免费音色":
-                if model.get("is_official", False):
+                # 检查category字段中是否包含"免费音色"，且不是官方音色
+                model_categories = [cat.strip() for cat in model.get("category", "").split(";")]
+                if "免费音色" not in model_categories and model.get("is_official", False):
                     continue
             elif self.current_category == "收藏夹":
-                if not model.get("is_favorite", False):
+                # 检查category字段中是否包含"收藏"，或is_favorite字段
+                model_categories = [cat.strip() for cat in model.get("category", "").split(";")]
+                if "收藏" not in model_categories and not model.get("is_favorite", False):
                     continue
             
             # 搜索过滤
@@ -344,7 +420,11 @@ class ManagementPage(BasePage):
             col = i % columns
             self.grid_layout.addWidget(card, row, col)
         
-        # 添加弹性空间
+        # 设置列的对齐方式，使卡片靠左对齐
+        for col in range(columns):
+            self.grid_layout.setColumnStretch(col, 0)  # 不拉伸列，让卡片靠左
+        
+        # 添加弹性空间（只在最后一行）
         self.grid_layout.setRowStretch(self.grid_layout.rowCount(), 1)
     
     def on_model_detail_clicked(self, model_id):

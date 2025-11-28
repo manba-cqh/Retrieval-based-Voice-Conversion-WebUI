@@ -43,11 +43,11 @@ QPushButton:disabled {
 QComboBox {
     background-color: #2d2d2d;
     border: 1px solid #3d3d3d;
-    border-radius: 6px;
-    padding: 0px;
+    border-radius: 4px;
+    padding: 2px 12px;
     color: #ffffff;
     font-size: 13px;
-    min-height: 20px;
+    min-height: 32px;
 }
 
 QComboBox:hover {
