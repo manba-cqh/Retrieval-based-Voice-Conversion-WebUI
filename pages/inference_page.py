@@ -138,8 +138,8 @@ class ModelCard(QFrame):
         self.setStyleSheet("""
             QFrame {
                 background-color: #252525;
-                border: 2px solid #3d3d3d;
-                border-radius: 8px;
+                border: 1px solid #3d3d3d;
+                border-radius: 1px;
             }
             QFrame:hover {
                 border: 2px solid #8b5cf6;
@@ -147,18 +147,18 @@ class ModelCard(QFrame):
             }
         """)
         
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         
         # 头像区域
         image_label = QLabel()
-        image_label.setFixedSize(80, 80)
+        image_label.setFixedSize(100, 100)
         image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         image_label.setStyleSheet("""
             QLabel {
                 background-color: #1e1e1e;
-                border-radius: 6px;
+                border-radius: 0px;
                 border: 1px solid #3d3d3d;
             }
         """)
@@ -170,7 +170,7 @@ class ModelCard(QFrame):
         else:
             # 根据名称生成占位符
             placeholder = self.model_name[0] if self.model_name else "?"
-            image_label.setText(f"<div style='font-size: 36px; color: #8b5cf6;'>{placeholder}</div>")
+            image_label.setText(f"<div style='font-size: 64px; color: #8b5cf6;'>{placeholder}</div>")
         
         image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(image_label)
@@ -178,9 +178,7 @@ class ModelCard(QFrame):
         # 名称
         name_label = QLabel(self.model_name)
         name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        name_label.setStyleSheet("font-size: 12px; font-weight: bold; padding: 3px; border: none; background-color: transparent;")
-        name_label.setWordWrap(True)
-        name_label.setMaximumHeight(40)  # 限制名称高度，避免过长
+        name_label.setStyleSheet("font-size: 26px; font-weight: bold; padding: 3px; border: none; background-color: transparent;")
         layout.addWidget(name_label)
         
         layout.addStretch()
@@ -335,41 +333,35 @@ class InferencePage(QWidget):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
 
-        left_layout = QVBoxLayout()
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(0)
+        # 左侧：模型列表
+        model_list_panel = self.create_model_list_panel()
 
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
+        right_layout.setSpacing(12)
 
-        main_layout.addLayout(left_layout, 1)
+        main_layout.addWidget(model_list_panel, 1)
         main_layout.addLayout(right_layout, 3)
         
-        # 左侧：模型列表
-        model_list_panel = self.create_model_list_panel()
-        left_layout.addWidget(model_list_panel)
-        
+        # 右侧区域
         # 上侧区域
         top_layout = QHBoxLayout()
-        top_layout.setSpacing(20)
-        
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(12)
         # 左上：大预览区域
-        large_preview = self.create_preview_area("布丁", size="large")
+        large_preview = self.create_preview_area("布丁")
         self.preview_label = large_preview.findChild(AdaptiveLabel)
         top_layout.addWidget(large_preview, 1)
-        
         # 右下：音频设备和控制
         control_panel = self.create_audio_device_panel()
         top_layout.addWidget(control_panel, 1)
-        
-        right_layout.addLayout(top_layout, 3)  # 上侧占3/4
+        right_layout.addLayout(top_layout, 3)
         
         # 下侧区域：音频控制
         bottom_panel = self.create_control_panel()
-        right_layout.addWidget(bottom_panel, 1)  # 下侧占1/4
+        right_layout.addWidget(bottom_panel, 1)
     
-    def create_preview_area(self, text, size="large"):
+    def create_preview_area(self, text):
         """创建预览区域（高度占满，宽度等于高度，保持正方形）"""
         preview = SquareFrame()
         preview.setStyleSheet("""
@@ -388,14 +380,10 @@ class InferencePage(QWidget):
         
         # 使用自适应字体大小的Label
         label = AdaptiveLabel(text)
-        # 根据size设置字体大小比例
-        if size == "large":
-            label._base_font_size = 0.4  # 大预览区域使用更大的字体比例
-        else:
-            label._base_font_size = 0.35  # 小预览区域使用稍小的字体比例
+        label._base_font_size = 0.4
         
         # 基础样式由全局样式表提供，只设置特殊颜色
-        label.setStyleSheet("color: #ffffff;")
+        label.setStyleSheet("color: #ffffff; border: none;")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(label)
         
@@ -413,8 +401,8 @@ class InferencePage(QWidget):
         """)
         
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(15)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(12)
         
         # 标题
         title = QLabel("模型列表")
@@ -431,7 +419,8 @@ class InferencePage(QWidget):
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # 禁用水平滚动条
         scroll_area.setStyleSheet("""
             QScrollArea {
-                border: none;
+                border: 2px solid #3d3d3d;
+                border-radius: 4px;
                 background-color: transparent;
             }
             QScrollBar:vertical {
@@ -453,7 +442,7 @@ class InferencePage(QWidget):
         self.model_list_widget = QWidget()
         self.model_list_layout = QVBoxLayout(self.model_list_widget)
         self.model_list_layout.setContentsMargins(0, 0, 0, 0)
-        self.model_list_layout.setSpacing(10)
+        self.model_list_layout.setSpacing(6)
         self.model_list_layout.addStretch()
         
         scroll_area.setWidget(self.model_list_widget)
@@ -470,6 +459,14 @@ class InferencePage(QWidget):
             {"id": "3", "name": "少女音", "image": "", "pth_path": "assets/weights/shaonv.pth", "index_path": "logs/shaonv.index"},
             {"id": "4", "name": "御姐音", "image": "", "pth_path": "assets/weights/yujie.pth", "index_path": "logs/yujie.index"},
             {"id": "5", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
+            {"id": "6", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
+            {"id": "7", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
+            {"id": "8", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
+            {"id": "9", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
+            {"id": "10", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
+            {"id": "11", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
+            {"id": "12", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
+            {"id": "13", "name": "萝莉音", "image": "", "pth_path": "assets/weights/luoli.pth", "index_path": "logs/luoli.index"},
         ]
         
         self.update_model_list()
@@ -490,6 +487,7 @@ class InferencePage(QWidget):
             card.clicked.connect(self.on_model_selected)
             self.model_cards.append(card)
             self.model_list_layout.insertWidget(self.model_list_layout.count() - 1, card)
+        self.model_list_layout.addStretch()
     
     def on_model_selected(self, model_data):
         """模型被选中"""
@@ -527,10 +525,6 @@ class InferencePage(QWidget):
         layout = QHBoxLayout(panel)
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(20)
-        
-        # 左侧：小预览
-        small_preview = self.create_preview_area("布丁", size="small")
-        layout.addWidget(small_preview)
         
         # 右侧：滑块和控制
         controls_layout = QVBoxLayout()
