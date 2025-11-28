@@ -454,7 +454,8 @@ class ManagementPage(BasePage):
             "description": detail_data.get("description", "茶韵悠悠可音袅袅少御音介于少女与御姐之间既有少女清脆又具御姐沉稳圆润柔和年龄感适中清嗓咳嗽呢喃细语悄悄话 笑声 自带情绪感")
         })
         
-        self.detail_page = ModelDetailPage(detail_data)
+        # 管理页面的模型都是已购买/已下载的
+        self.detail_page = ModelDetailPage(detail_data, is_purchased=True)
         self.detail_page.back_clicked.connect(self.show_list_page)
         self.detail_page.setParent(self.stacked_widget)
         

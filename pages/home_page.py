@@ -122,9 +122,10 @@ class ModelDetailPage(QWidget):
     """模型详情页面"""
     back_clicked = pyqtSignal()  # 返回信号
     
-    def __init__(self, model_data, parent=None):
+    def __init__(self, model_data, parent=None, is_purchased=False):
         super().__init__(parent)
         self.model_data = model_data
+        self.is_purchased = is_purchased  # 是否已购买/已下载
         self.trial_timer = QTimer()
         self.trial_timer.timeout.connect(self.update_trial_time)
         self.trial_seconds = 0
@@ -260,23 +261,38 @@ class ModelDetailPage(QWidget):
         info_row.addWidget(info_text)
         info_row.addStretch()
         
-        # 立即购买按钮
-        buy_btn = QPushButton("立即购买")
-        buy_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #8b5cf6;
-                color: #ffffff;
-                border: none;
-                border-radius: 6px;
-                padding: 10px 30px;
-                font-size: 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #7c3aed;
-            }
-        """)
-        buy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        # 立即购买按钮（如果已购买则显示"已购买"）
+        if self.is_purchased:
+            buy_btn = QPushButton("已购买")
+            buy_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #4caf50;
+                    color: #ffffff;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 10px 30px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+            """)
+            buy_btn.setEnabled(False)
+        else:
+            buy_btn = QPushButton("立即购买")
+            buy_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #8b5cf6;
+                    color: #ffffff;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 10px 30px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #7c3aed;
+                }
+            """)
+            buy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         info_row.addWidget(buy_btn)
         
         info_layout.addLayout(info_row)
@@ -298,13 +314,19 @@ class ModelDetailPage(QWidget):
         audition_section = self.create_audition_section()
         layout.addWidget(audition_section, 3)
         
-        # 试用
-        trial_section = self.create_trial_section()
-        layout.addWidget(trial_section, 5)
-        
-        # 下载
-        download_section = self.create_download_section()
-        layout.addWidget(download_section, 5)
+        # 如果已购买/已下载，不显示试用区块，显示使用按钮
+        if self.is_purchased:
+            # 使用按钮（已下载，直接使用）
+            use_section = self.create_use_section()
+            layout.addWidget(use_section, 5)
+        else:
+            # 试用
+            trial_section = self.create_trial_section()
+            layout.addWidget(trial_section, 5)
+            
+            # 下载
+            download_section = self.create_download_section()
+            layout.addWidget(download_section, 5)
         
         layout.addStretch()
         return panel
@@ -675,9 +697,11 @@ class ModelDetailPage(QWidget):
         
         # 下载按钮
         download_layout = QHBoxLayout()
+        download_layout.setContentsMargins(0, 0, 24, 0)
+        download_layout.setSpacing(0)
         
-        download_btn = QPushButton("点击按钮即可开始下载")
-        download_btn.setFixedSize(164, 36)
+        download_btn = QPushButton("开始下载")
+        download_btn.setFixedSize(96, 36)
         download_btn.setStyleSheet("""
             QPushButton {
                 background-color: #8b5cf6;
@@ -694,26 +718,8 @@ class ModelDetailPage(QWidget):
         """)
         download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         download_btn.clicked.connect(self.on_download_clicked)
-        download_layout.addWidget(download_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-        
-        alt_download_btn = QPushButton("备用下载通道")
-        alt_download_btn.setFixedSize(164, 36)
-        alt_download_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3d3d3d;
-                color: #ffffff;
-                border: none;
-                border-radius: 6px;
-                font-size: 14px;
-                padding: 0px;
-            }
-            QPushButton:hover {
-                background-color: #4d4d4d;
-            }
-        """)
-        alt_download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        download_layout.addWidget(alt_download_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         download_layout.addStretch()
+        download_layout.addWidget(download_btn, alignment=Qt.AlignmentFlag.AlignCenter)
         
         layout.addLayout(download_layout)
         return section
@@ -745,6 +751,69 @@ class ModelDetailPage(QWidget):
             self.trial_btn.setEnabled(True)
             self.trial_time_label.setVisible(False)
             QMessageBox.information(self, "提示", "试用时间已到")
+    
+    def create_use_section(self):
+        """创建使用区块（已购买/已下载）"""
+        section = QWidget()
+        section.setStyleSheet("""
+            QWidget {
+                background-color: #252525;
+                border-radius: 8px;
+                padding: 20px;
+            }
+        """)
+        layout = QVBoxLayout(section)
+        layout.setSpacing(15)
+        
+        title_label = QLabel("使用")
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold; border: none; background-color: transparent; padding: 0px;")
+        layout.addWidget(title_label)
+        
+        # 状态提示
+        status_label = QLabel("✓ 已下载，可直接使用")
+        status_label.setStyleSheet("color: #4caf50; font-size: 14px; border: none; background-color: transparent; padding: 0px;")
+        layout.addWidget(status_label)
+        
+        # 使用按钮
+        use_layout = QHBoxLayout()
+        use_btn = QPushButton("前往推理页面使用")
+        use_btn.setFixedSize(200, 40)
+        use_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #8b5cf6;
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                padding: 10px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #7c3aed;
+            }
+        """)
+        use_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        use_btn.clicked.connect(self.on_use_clicked)
+        use_layout.addWidget(use_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        use_layout.addStretch()
+        
+        layout.addLayout(use_layout)
+        
+        # 显示模型文件路径信息
+        pth_path = self.model_data.get("pth_path", "")
+        index_path = self.model_data.get("index_path", "")
+        if pth_path:
+            path_info = QLabel(f"模型文件: {pth_path}")
+            path_info.setStyleSheet("color: #888888; font-size: 12px; border: none; background-color: transparent; padding: 5px 0px;")
+            path_info.setWordWrap(True)
+            layout.addWidget(path_info)
+        
+        layout.addStretch()
+        return section
+    
+    def on_use_clicked(self):
+        """使用按钮点击"""
+        QMessageBox.information(self, "提示", "请前往推理页面使用该模型")
     
     def on_download_clicked(self):
         """下载按钮点击"""
