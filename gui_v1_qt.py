@@ -1,4 +1,11 @@
 import sys
+import os
+
+# 强制仅用 CPU，避免在无匹配 GPU/驱动时初始化 CUDA
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["TORCH_CUDA_ALLOW_NO_GPU"] = "1"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QFrame, QStackedWidget
@@ -270,20 +277,35 @@ def load_stylesheet(file_path):
 
 
 def main():
-    app = QApplication(sys.argv)
-    
-    # 设置应用程序样式
-    app.setStyle('Fusion')
-    
-    # 从文件加载全局样式表
-    stylesheet = load_stylesheet("res/style.qss")
-    if stylesheet:
-        app.setStyleSheet(stylesheet)
-    
-    window = MainWindow()
-    window.show()
-    
-    sys.exit(app.exec())
+    try:
+        # 添加异常捕获，确保错误能被看到
+        import traceback
+        
+        app = QApplication(sys.argv)
+        
+        # 设置应用程序样式
+        app.setStyle('Fusion')
+        
+        # 从文件加载全局样式表
+        stylesheet = load_stylesheet("res/style.qss")
+        if stylesheet:
+            app.setStyleSheet(stylesheet)
+        
+        window = MainWindow()
+        window.show()
+        
+        sys.exit(app.exec())
+    except Exception as e:
+        # 打印详细错误信息
+        import traceback
+        error_msg = traceback.format_exc()
+        print("=" * 50)
+        print("程序启动失败！")
+        print("=" * 50)
+        print(error_msg)
+        print("=" * 50)
+        input("按回车键退出...")  # 暂停，让用户看到错误信息
+        sys.exit(1)
 
 
 if __name__ == "__main__":
