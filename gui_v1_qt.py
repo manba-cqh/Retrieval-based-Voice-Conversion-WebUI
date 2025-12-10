@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QFrame, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QSize, QPoint
-from PyQt6.QtGui import QFont, QIcon, QMouseEvent, QPixmap
+from PyQt6.QtGui import QFont, QIcon, QMouseEvent, QPixmap, QPainter, QBrush, QLinearGradient, QMovie
 
 # 导入页面类
 from pages import (
@@ -19,9 +19,11 @@ from pages import (
     InferencePage,
     ManagementPage,
     SettingsPage,
-    SupportPage
+    SupportPage,
+    LoginPage,
+    RegisterPage,
+    AgreementDialog
 )
-
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -29,6 +31,7 @@ class MainWindow(QMainWindow):
         self.current_page = "home"  # 当前选中的页面
         self.drag_position = QPoint()  # 拖动位置
         self.dragging = False  # 是否正在拖动
+        self.is_logged_in = False  # 登录状态
         self.init_ui()
     
     def init_ui(self):
@@ -39,20 +42,62 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("娱音")
         self.setFixedSize(1200, 800)
         
-        # 创建中央部件
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+        # 主窗口不设置背景
+        self.setStyleSheet("""
+            QStackedWidget {
+                background: transparent;
+            }
+        """)
         
-        # 主布局
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        # 创建主堆叠窗口（用于切换登录/主界面）
+        self.main_stack = QStackedWidget()
+        self.main_stack.setStyleSheet("background: transparent;")
+        self.setCentralWidget(self.main_stack)
+        
+        self.auth_container = QLabel()
+        movie = QMovie("res/background.gif")
+        movie.setScaledSize(self.size())
+        self.auth_container.setMovie(movie)
+        movie.start()
+        auth_layout = QVBoxLayout(self.auth_container)
+        auth_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 创建登录/注册页面堆叠
+        self.auth_stack = QStackedWidget()
+        self.auth_stack.setStyleSheet("background: transparent;")
+        self.login_page = LoginPage()
+        self.register_page = RegisterPage()
+        
+        # 设置主窗口引用
+        self.login_page.main_window = self
+        self.register_page.main_window = self
+        
+        # 连接信号
+        self.login_page.login_success.connect(self.on_login_success)
+        self.register_page.register_success.connect(self.on_register_success)
+        
+        self.auth_stack.addWidget(self.login_page)
+        self.auth_stack.addWidget(self.register_page)
+        auth_layout.addWidget(self.auth_stack)
+        
+        # 创建主应用容器（使用默认背景，不透明）
+        self.app_container = QWidget()
+        app_layout = QVBoxLayout(self.app_container)
+        app_layout.setContentsMargins(0, 0, 0, 0)
+        app_layout.setSpacing(0)
         
         # 顶部导航栏
-        self.create_top_bar(main_layout)
+        self.create_top_bar(app_layout)
         
         # 内容区域
-        self.create_content_area(main_layout)
+        self.create_content_area(app_layout)
+        
+        # 添加到主堆叠
+        self.main_stack.addWidget(self.auth_container)
+        self.main_stack.addWidget(self.app_container)
+        
+        # 默认显示登录页面
+        self.main_stack.setCurrentWidget(self.auth_container)
     
     def create_top_bar(self, parent_layout):
         """创建顶部导航栏"""
@@ -212,10 +257,42 @@ class MainWindow(QMainWindow):
             # 更新导航按钮样式
             self.update_nav_button_style(key)
     
+    def show_login(self):
+        """显示登录页面"""
+        self.auth_stack.setCurrentWidget(self.login_page)
+    
+    def show_register(self):
+        """显示注册页面"""
+        self.auth_stack.setCurrentWidget(self.register_page)
+    
+    def show_agreement(self):
+        """显示用户协议"""
+        dialog = AgreementDialog(self)
+        dialog.exec()
+    
+    def on_login_success(self, username, password):
+        """登录成功"""
+        # TODO: 实现登录验证逻辑
+        print(f"登录成功: {username}")
+        self.is_logged_in = True
+        # 切换到主应用界面
+        self.main_stack.setCurrentWidget(self.app_container)
+    
+    def on_register_success(self, username, password, phone, activation_code):
+        """注册成功"""
+        # TODO: 实现注册逻辑
+        print(f"注册成功: {username}, {phone}, {activation_code}")
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(self, "提示", "注册成功！请登录")
+        # 切换到登录页面
+        self.show_login()
+    
     def on_logout_clicked(self):
         """退出登录按钮点击事件"""
-        print("退出登录")
-        # TODO: 实现退出登录逻辑
+        self.is_logged_in = False
+        # 切换到登录页面
+        self.main_stack.setCurrentWidget(self.auth_container)
+        self.show_login()
     
     def on_search_clicked(self):
         """搜索按钮点击事件"""
@@ -310,4 +387,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
