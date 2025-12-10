@@ -1,10 +1,10 @@
 import sys
 import os
 
-# 强制仅用 CPU，避免在无匹配 GPU/驱动时初始化 CUDA
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-os.environ["TORCH_CUDA_ALLOW_NO_GPU"] = "1"
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
+# 将项目根目录添加到 Python 路径中，以便能够导入 pages 模块
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
