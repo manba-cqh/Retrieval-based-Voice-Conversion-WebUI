@@ -5,7 +5,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QCheckBox, QFrame, QMessageBox, QStackedWidget
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
+from api.auth import auth_api
 
 
 class PasswordWidget(QLineEdit):
@@ -323,8 +324,15 @@ class AuthPage(QWidget):
             QMessageBox.warning(self, "提示", "请先同意用户协议")
             return
         
-        # 发送登录成功信号
-        self.login_success.emit(username, password)
+        # 调用登录API
+        result = auth_api.login(username, password)
+        
+        if result.get("success"):
+            # 登录成功，发送信号
+            self.login_success.emit(username, password)
+        else:
+            # 登录失败，显示错误信息
+            QMessageBox.warning(self, "登录失败", result.get("message", "登录失败，请检查用户名和密码"))
     
     def on_forgot_password(self):
         """忘记密码"""
@@ -370,8 +378,19 @@ class AuthPage(QWidget):
             QMessageBox.warning(self, "提示", "请输入激活码")
             return
         
-        # 发送注册成功信号
-        self.register_success.emit(username, password, phone, activation_code)
+        # 调用注册API（注意：服务端可能不需要激活码，这里先传递）
+        result = auth_api.register(
+            username=username,
+            password=password,
+            phone=phone
+        )
+        
+        if result.get("success"):
+            # 注册成功，发送信号
+            self.register_success.emit(username, password, phone, activation_code)
+        else:
+            # 注册失败，显示错误信息
+            QMessageBox.warning(self, "注册失败", result.get("message", "注册失败，请重试"))
     
     def on_agreement_clicked(self):
         """用户协议链接点击"""

@@ -31,7 +31,10 @@ class MainWindow(QMainWindow):
         self.drag_position = QPoint()  # 拖动位置
         self.dragging = False  # 是否正在拖动
         self.is_logged_in = False  # 登录状态
+        self.current_username = None  # 当前登录用户名
         self.init_ui()
+        # 检查是否有已保存的登录状态
+        self._check_saved_login()
     
     def init_ui(self):
         """初始化用户界面"""
@@ -275,24 +278,65 @@ class MainWindow(QMainWindow):
     
     def on_login_success(self, username, password):
         """登录成功"""
-        # TODO: 实现登录验证逻辑
-        print(f"登录成功: {username}")
-        self.is_logged_in = True
-        # 切换到主应用界面
-        self.main_stack.setCurrentWidget(self.app_container)
+        from api.auth import auth_api
+        
+        # 检查是否真的登录成功（token已保存）
+        if auth_api.is_logged_in():
+            print(f"登录成功: {username}")
+            self.is_logged_in = True
+            # 保存用户信息（可选：保存到配置文件）
+            self.current_username = username
+            # 切换到主应用界面
+            self.main_stack.setCurrentWidget(self.app_container)
+        else:
+            # 如果API调用失败，这里不应该被调用
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "错误", "登录状态异常，请重新登录")
     
     def on_register_success(self, username, password, phone, activation_code):
         """注册成功"""
-        # TODO: 实现注册逻辑
-        print(f"注册成功: {username}, {phone}, {activation_code}")
         from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(self, "提示", "注册成功！请登录")
-        # 切换到登录页面
-        self.show_login()
+        from api.auth import auth_api
+        
+        # 检查注册是否成功（auth_api.register 已经处理了）
+        if auth_api.is_logged_in():
+            # 如果注册后自动登录了，直接进入主界面
+            print(f"注册并登录成功: {username}")
+            self.is_logged_in = True
+            self.current_username = username
+            self.main_stack.setCurrentWidget(self.app_container)
+        else:
+            # 注册成功但未自动登录，提示用户登录
+            print(f"注册成功: {username}, {phone}")
+            QMessageBox.information(self, "提示", "注册成功！请登录")
+            # 切换到登录页面
+            self.show_login()
+    
+    def _check_saved_login(self):
+        """检查是否有已保存的登录状态"""
+        from api.auth import auth_api
+        
+        if auth_api.is_logged_in():
+            # 验证token是否有效
+            result = auth_api.get_current_user()
+            if result.get("success"):
+                self.is_logged_in = True
+                self.current_username = result.get("user", {}).get("username")
+                # 切换到主应用界面
+                self.main_stack.setCurrentWidget(self.app_container)
+            else:
+                # Token无效，清除
+                auth_api.logout()
     
     def on_logout_clicked(self):
         """退出登录按钮点击事件"""
+        from api.auth import auth_api
+        
+        # 清除登录状态
+        auth_api.logout()
         self.is_logged_in = False
+        self.current_username = None
+        
         # 切换到登录页面
         self.main_stack.setCurrentWidget(self.auth_container)
         self.show_login()
