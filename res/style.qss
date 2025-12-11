@@ -375,3 +375,113 @@ QProgressBar::chunk {
     border-radius: 3px;
 }
 
+/* 认证页面样式 */
+
+/* 认证页面对话框框架 */
+QFrame[login_bg=true] {
+    border-image: url(res/login_bg.png);
+}
+
+/* 认证页面标题 */
+QLabel[auth_title=true] {
+    color: #8b5cf6;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+/* 认证页面输入框（白色背景） */
+QLineEdit[auth_input=true] {
+    background-color: white;
+    border: 1px solid #cccccc;
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 14px;
+    color: #000000;
+}
+QLineEdit[auth_input=true]:focus {
+    border: 2px solid #8b5cf6;
+}
+
+/* 密码切换按钮 */
+QPushButton[auth_password_hide=true] {
+    border-image: url(res/眼睛_隐藏.png)
+}
+QPushButton[auth_password_show=true] {
+    border-image: url(res/眼睛.png)
+}
+
+/* 认证页面复选框 */
+QCheckBox[auth_checkbox=true] {
+    color: #cccccc;
+    font-size: 12px;
+}
+
+QCheckBox[auth_checkbox=true]::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #cccccc;
+    border-radius: 3px;
+    background-color: white;
+}
+
+QCheckBox[auth_checkbox=true]::indicator:checked {
+    background-color: #8b5cf6;
+    border: 1px solid #8b5cf6;
+}
+
+/* 认证页面小复选框（用于协议） */
+QCheckBox[auth_checkbox_small=true] {
+    color: #cccccc;
+    font-size: 11px;
+}
+
+QCheckBox[auth_checkbox_small=true]::indicator {
+    width: 14px;
+    height: 14px;
+    border: 1px solid #cccccc;
+    border-radius: 3px;
+    background-color: white;
+}
+
+QCheckBox[auth_checkbox_small=true]::indicator:checked {
+    background-color: #8b5cf6;
+    border: 1px solid #8b5cf6;
+}
+
+/* 认证页面链接标签 */
+QLabel[auth_link=true] {
+    color: #39B5D4;
+    font-size: 12px;
+    text-decoration: underline;
+}
+
+/* 认证页面小链接标签（用于协议） */
+QLabel[auth_link_small=true] {
+    color: #39B5D4;
+    font-size: 11px;
+    text-decoration: underline;
+}
+
+/* 认证页面次要文本 */
+QLabel[auth_text_secondary=true] {
+    color: #cccccc;
+    font-size: 12px;
+}
+
+/* 认证页面主要按钮（登录/注册按钮） */
+QPushButton[auth_primary=true] {
+    background-color: #0068B7;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+QPushButton[auth_primary=true]:hover {
+    background-color: #0068B7;
+}
+
+QPushButton[auth_primary=true]:pressed {
+    background-color: #0068B7;
+}

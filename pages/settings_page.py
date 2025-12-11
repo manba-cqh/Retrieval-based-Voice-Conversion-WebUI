@@ -16,6 +16,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QPixmap
 
 from .base_page import BasePage
+from .tools import create_slider
 
 
 class SettingsPage(BasePage):
@@ -77,10 +78,6 @@ class SettingsPage(BasePage):
         device_check_group = self.create_device_check_group()
         content_layout.addWidget(device_check_group)
         
-        # 设备设置部分
-        device_settings_group = self.create_device_settings_group()
-        content_layout.addWidget(device_settings_group)
-        
         content_layout.addStretch()
         
         scroll.setWidget(content_widget)
@@ -105,7 +102,7 @@ class SettingsPage(BasePage):
         extra_val = self.config_data.get("extra_time", 2.99)
         
         # 音量大小 (使用 rms_mix_rate) - 第0行第0列
-        volume_container, self.volume_slider, volume_label = self.create_slider(
+        volume_container, self.volume_slider, volume_label = create_slider(
             "音量大小", volume_val, 0.0, 1.0, volume_val, step=0.01
         )
         self.volume_slider.valueChanged.connect(
@@ -114,7 +111,7 @@ class SettingsPage(BasePage):
         layout.addWidget(volume_container, 0, 0)
         
         # 淡入淡出长度 - 第0行第1列
-        fade_container, self.fade_slider, fade_label = self.create_slider(
+        fade_container, self.fade_slider, fade_label = create_slider(
             "淡入淡出长度", fade_val, 0.01, 0.5, fade_val, step=0.01
         )
         self.fade_slider.valueChanged.connect(
@@ -123,7 +120,7 @@ class SettingsPage(BasePage):
         layout.addWidget(fade_container, 0, 1)
         
         # harvest进程数 - 第1行第0列
-        harvest_container, self.harvest_slider, harvest_label = self.create_slider(
+        harvest_container, self.harvest_slider, harvest_label = create_slider(
             "harvest进程数", harvest_val, 1, min(cpu_count(), 8), harvest_val, step=1
         )
         self.harvest_slider.valueChanged.connect(
@@ -132,7 +129,7 @@ class SettingsPage(BasePage):
         layout.addWidget(harvest_container, 1, 0)
         
         # 额外推理时长 - 第1行第1列
-        extra_container, self.extra_slider, extra_label = self.create_slider(
+        extra_container, self.extra_slider, extra_label = create_slider(
             "额外推理时长", extra_val, 0.05, 5.0, extra_val, step=0.01
         )
         self.extra_slider.valueChanged.connect(
@@ -215,7 +212,7 @@ class SettingsPage(BasePage):
         threshold_val = abs(int(self.config_data.get("threhold", -60)))
         # 将阈值转换为0-100的范围显示
         system_volume_val = max(0, min(100, int((threshold_val + 60) * 100 / 60)))
-        volume_container, self.system_volume_slider, system_volume_label = self.create_slider(
+        volume_container, self.system_volume_slider, system_volume_label = create_slider(
             "系统扬声器音量", system_volume_val, 0, 100, system_volume_val, step=1
         )
         self.system_volume_slider.valueChanged.connect(
@@ -291,124 +288,6 @@ class SettingsPage(BasePage):
         layout.addWidget(level_indicator, 2, 1)
         
         return group
-    
-    def create_device_settings_group(self):
-        """创建设备设置组"""
-        group = QGroupBox("设备设置")
-        
-        layout = QGridLayout(group)
-        layout.setSpacing(15)
-        layout.setContentsMargins(20, 30, 20, 20)
-        
-        # 设备协议 - 第0行第0列
-        protocol_layout = QVBoxLayout()
-        protocol_layout.setContentsMargins(0, 0, 0, 0)
-        protocol_label = QLabel("设备协议")
-        # 基础样式由全局样式表提供，只设置特殊字体大小
-        protocol_label.setStyleSheet("font-size: 14px;")
-        self.protocol_combo = QComboBox()
-        if self.hostapis:
-            self.protocol_combo.addItems(self.hostapis)
-        else:
-            self.protocol_combo.addItem("MME")
-        # 样式由全局样式表提供
-        # 加载保存的协议
-        saved_protocol = self.config_data.get("sg_hostapi", "")
-        if saved_protocol and saved_protocol in self.hostapis:
-            self.protocol_combo.setCurrentText(saved_protocol)
-        self.protocol_combo.currentTextChanged.connect(self.on_protocol_changed)
-        protocol_layout.addWidget(protocol_label)
-        protocol_layout.addWidget(self.protocol_combo)
-        layout.addLayout(protocol_layout, 0, 0)
-        
-        # 输出设备 - 第0行第1列
-        output_layout = QVBoxLayout()
-        output_layout.setContentsMargins(0, 0, 0, 0)
-        output_label = QLabel("输出设备")
-        # 基础样式由全局样式表提供，只设置特殊字体大小
-        output_label.setStyleSheet("font-size: 14px;")
-        self.output_combo = QComboBox()
-        if self.output_devices:
-            self.output_combo.addItems(self.output_devices)
-        else:
-            self.output_combo.addItem("未找到设备")
-        # 样式由全局样式表提供
-        # 加载保存的输出设备
-        saved_output = self.config_data.get("sg_output_device", "")
-        if saved_output and saved_output in self.output_devices:
-            self.output_combo.setCurrentText(saved_output)
-        self.output_combo.currentTextChanged.connect(self.on_output_device_changed)
-        output_layout.addWidget(output_label)
-        output_layout.addWidget(self.output_combo)
-        layout.addLayout(output_layout, 0, 1)
-        
-        # 输入设备 - 第1行，跨2列
-        input_layout = QVBoxLayout()
-        input_layout.setContentsMargins(0, 0, 0, 0)
-        input_label = QLabel("输入设备")
-        # 基础样式由全局样式表提供，只设置特殊字体大小
-        input_label.setStyleSheet("font-size: 14px;")
-        self.input_combo = QComboBox()
-        if self.input_devices:
-            self.input_combo.addItems(self.input_devices)
-        else:
-            self.input_combo.addItem("未找到设备")
-        # 样式由全局样式表提供
-        # 加载保存的输入设备
-        saved_input = self.config_data.get("sg_input_device", "")
-        if saved_input and saved_input in self.input_devices:
-            self.input_combo.setCurrentText(saved_input)
-        self.input_combo.currentTextChanged.connect(self.on_input_device_changed)
-        input_layout.addWidget(input_label)
-        input_layout.addWidget(self.input_combo)
-        layout.addLayout(input_layout, 1, 0)
-        
-        return group
-    
-    def create_slider(self, label_text, value, min_val, max_val, default_val, step=1):
-        """创建滑块控件，返回容器、滑块和值标签"""
-        container = QWidget()
-        container.setStyleSheet("background-color: transparent;")
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        
-        # 标签和值
-        label_layout = QHBoxLayout()
-        label = QLabel(label_text)
-        # 基础样式由全局样式表提供，只设置特殊字体大小
-        label.setStyleSheet("font-size: 14px;")
-        label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        value_label = QLabel(str(value))
-        value_label.setStyleSheet("color: #8b5cf6; font-size: 14px; font-weight: bold;")
-        value_label.setMinimumWidth(60)
-        value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        
-        label_layout.addWidget(label)
-        label_layout.addStretch()
-        label_layout.addWidget(value_label)
-        layout.addLayout(label_layout)
-        
-        # 滑块
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setMinimum(int(min_val / step))
-        slider.setMaximum(int(max_val / step))
-        slider.setValue(int(default_val / step))
-        slider.setFixedHeight(18)
-        # 样式由全局样式表提供
-        
-        # 连接信号更新值显示
-        def update_value(val):
-            actual_val = val * step
-            value_label.setText(f"{actual_val:.2f}" if step < 1 else str(actual_val))
-        
-        slider.valueChanged.connect(update_value)
-        slider.setCursor(Qt.CursorShape.PointingHandCursor)
-        
-        layout.addWidget(slider)
-        
-        return container, slider, value_label
-    
     
     def load_config(self):
         """加载配置"""
@@ -546,22 +425,6 @@ class SettingsPage(BasePage):
             self.speaker_combo.clear()
             if self.output_devices:
                 self.speaker_combo.addItems(self.output_devices)
-        if hasattr(self, "input_combo"):
-            self.input_combo.clear()
-            if self.input_devices:
-                self.input_combo.addItems(self.input_devices)
-                # 尝试恢复之前选择的设备
-                saved_input = self.config_data.get("sg_input_device", "")
-                if saved_input and saved_input in self.input_devices:
-                    self.input_combo.setCurrentText(saved_input)
-        if hasattr(self, "output_combo"):
-            self.output_combo.clear()
-            if self.output_devices:
-                self.output_combo.addItems(self.output_devices)
-                # 尝试恢复之前选择的设备
-                saved_output = self.config_data.get("sg_output_device", "")
-                if saved_output and saved_output in self.output_devices:
-                    self.output_combo.setCurrentText(saved_output)
         self.save_config()
     
     def on_reload_devices(self):
@@ -587,14 +450,6 @@ class SettingsPage(BasePage):
         if hasattr(self, "protocol_combo") and self.hostapis:
             self.protocol_combo.clear()
             self.protocol_combo.addItems(self.hostapis)
-        if hasattr(self, "input_combo"):
-            self.input_combo.clear()
-            if self.input_devices:
-                self.input_combo.addItems(self.input_devices)
-        if hasattr(self, "output_combo"):
-            self.output_combo.clear()
-            if self.output_devices:
-                self.output_combo.addItems(self.output_devices)
         
         QMessageBox.information(self, "提示", "设备列表已重新加载")
     
@@ -607,47 +462,15 @@ class SettingsPage(BasePage):
         """反馈链接点击"""
         QMessageBox.information(self, "反馈", "反馈功能待实现")
     
-    def on_input_device_changed(self, device_name):
-        """输入设备改变（设备设置组）"""
-        if device_name and device_name != "未找到设备":
-            self.config_data["sg_input_device"] = device_name
-            self.save_config()
-            # 同步更新设备检查组的麦克风选择
-            if hasattr(self, "mic_combo") and device_name in [self.mic_combo.itemText(i) for i in range(self.mic_combo.count())]:
-                self.mic_combo.blockSignals(True)
-                self.mic_combo.setCurrentText(device_name)
-                self.mic_combo.blockSignals(False)
-    
-    def on_output_device_changed(self, device_name):
-        """输出设备改变（设备设置组）"""
-        if device_name and device_name != "未找到设备":
-            self.config_data["sg_output_device"] = device_name
-            self.save_config()
-            # 同步更新设备检查组的扬声器选择
-            if hasattr(self, "speaker_combo") and device_name in [self.speaker_combo.itemText(i) for i in range(self.speaker_combo.count())]:
-                self.speaker_combo.blockSignals(True)
-                self.speaker_combo.setCurrentText(device_name)
-                self.speaker_combo.blockSignals(False)
-    
     def on_mic_device_changed(self, device_name):
         """麦克风设备改变（设备检查组）"""
         if device_name and device_name != "未找到设备":
             self.config_data["sg_input_device"] = device_name
             self.save_config()
-            # 同步更新设备设置组的输入设备选择
-            if hasattr(self, "input_combo") and device_name in [self.input_combo.itemText(i) for i in range(self.input_combo.count())]:
-                self.input_combo.blockSignals(True)
-                self.input_combo.setCurrentText(device_name)
-                self.input_combo.blockSignals(False)
     
     def on_speaker_device_changed(self, device_name):
         """扬声器设备改变（设备检查组）"""
         if device_name and device_name != "未找到设备":
             self.config_data["sg_output_device"] = device_name
             self.save_config()
-            # 同步更新设备设置组的输出设备选择
-            if hasattr(self, "output_combo") and device_name in [self.output_combo.itemText(i) for i in range(self.output_combo.count())]:
-                self.output_combo.blockSignals(True)
-                self.output_combo.setCurrentText(device_name)
-                self.output_combo.blockSignals(False)
     

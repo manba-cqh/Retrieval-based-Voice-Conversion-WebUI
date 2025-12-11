@@ -20,9 +20,8 @@ from pages import (
     ManagementPage,
     SettingsPage,
     SupportPage,
-    LoginPage,
-    RegisterPage,
-    AgreementDialog
+    AuthPage,
+    AgreementPage
 )
 
 class MainWindow(QMainWindow):
@@ -36,25 +35,18 @@ class MainWindow(QMainWindow):
     
     def init_ui(self):
         """初始化用户界面"""
-        # 隐藏标题栏（无边框窗口）
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
-        
         self.setWindowTitle("娱音")
         self.setFixedSize(1200, 800)
-        
-        # 主窗口不设置背景
-        self.setStyleSheet("""
-            QStackedWidget {
-                background: transparent;
-            }
-        """)
         
         # 创建主堆叠窗口（用于切换登录/主界面）
         self.main_stack = QStackedWidget()
         self.main_stack.setStyleSheet("background: transparent;")
         self.setCentralWidget(self.main_stack)
         
+        # 登录/注册容器
         self.auth_container = QLabel()
+        self.main_stack.addWidget(self.auth_container)
         movie = QMovie("res/background.gif")
         movie.setScaledSize(self.size())
         self.auth_container.setMovie(movie)
@@ -62,39 +54,43 @@ class MainWindow(QMainWindow):
         auth_layout = QVBoxLayout(self.auth_container)
         auth_layout.setContentsMargins(0, 0, 0, 0)
         
-        # 创建登录/注册页面堆叠
+        # 创建认证页面堆叠（用于切换登录/注册和协议页面）
         self.auth_stack = QStackedWidget()
         self.auth_stack.setStyleSheet("background: transparent;")
-        self.login_page = LoginPage()
-        self.register_page = RegisterPage()
         
-        # 设置主窗口引用
-        self.login_page.main_window = self
-        self.register_page.main_window = self
+        # 创建统一的认证页面（包含登录和注册）
+        self.auth_page = AuthPage()
+        self.auth_page.main_window = self
+        self.auth_page.login_success.connect(self.on_login_success)
+        self.auth_page.register_success.connect(self.on_register_success)
+        self.auth_stack.addWidget(self.auth_page)
         
-        # 连接信号
-        self.login_page.login_success.connect(self.on_login_success)
-        self.register_page.register_success.connect(self.on_register_success)
+        # 创建协议页面
+        self.agreement_page = AgreementPage()
+        self.agreement_page.closed.connect(self.show_auth_page)
+        self.auth_stack.addWidget(self.agreement_page)
         
-        self.auth_stack.addWidget(self.login_page)
-        self.auth_stack.addWidget(self.register_page)
         auth_layout.addWidget(self.auth_stack)
+
+        self.auth_close_btn = QPushButton("", self.auth_container)
+        self.auth_close_btn.setFixedSize(30, 30)
+        self.auth_close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.auth_close_btn.setStyleSheet("""
+            QPushButton {
+                border-image: url("res/关闭.png");
+            }
+        """)
+        self.auth_close_btn.clicked.connect(self.close)
         
-        # 创建主应用容器（使用默认背景，不透明）
+        # 主页面容器
         self.app_container = QWidget()
+        self.main_stack.addWidget(self.app_container)
         app_layout = QVBoxLayout(self.app_container)
         app_layout.setContentsMargins(0, 0, 0, 0)
         app_layout.setSpacing(0)
         
-        # 顶部导航栏
         self.create_top_bar(app_layout)
-        
-        # 内容区域
         self.create_content_area(app_layout)
-        
-        # 添加到主堆叠
-        self.main_stack.addWidget(self.auth_container)
-        self.main_stack.addWidget(self.app_container)
         
         # 默认显示登录页面
         self.main_stack.setCurrentWidget(self.auth_container)
@@ -259,16 +255,23 @@ class MainWindow(QMainWindow):
     
     def show_login(self):
         """显示登录页面"""
-        self.auth_stack.setCurrentWidget(self.login_page)
+        if hasattr(self, 'auth_page'):
+            self.auth_page.show_login()
     
     def show_register(self):
         """显示注册页面"""
-        self.auth_stack.setCurrentWidget(self.register_page)
+        if hasattr(self, 'auth_page'):
+            self.auth_page.show_register()
     
     def show_agreement(self):
-        """显示用户协议"""
-        dialog = AgreementDialog(self)
-        dialog.exec()
+        """显示用户协议页面"""
+        if hasattr(self, 'auth_stack'):
+            self.auth_stack.setCurrentWidget(self.agreement_page)
+    
+    def show_auth_page(self):
+        """显示认证页面（登录/注册）"""
+        if hasattr(self, 'auth_stack'):
+            self.auth_stack.setCurrentWidget(self.auth_page)
     
     def on_login_success(self, username, password):
         """登录成功"""
@@ -338,6 +341,12 @@ class MainWindow(QMainWindow):
             self.dragging = False
             event.accept()
         super().mouseReleaseEvent(event)
+
+    def resizeEvent(self, event):
+        """窗口大小改变事件"""
+        super().resizeEvent(event)
+        self.auth_close_btn.move(self.width() - self.auth_close_btn.width() * 3 / 2 , self.auth_close_btn.height() / 2)
+        self.auth_container.raise_()
 
 
 def load_stylesheet(file_path):

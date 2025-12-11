@@ -22,6 +22,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QResizeEvent, QPixmap
 
+# 导入工具函数
+from .tools import create_slider
+
 # 导入项目模块（延迟导入，避免阻塞）
 sys.path.append(os.getcwd())
 # 注意：rtrvc 模块会在需要时动态导入，避免 multiprocessing.Manager 在导入时的阻塞
@@ -374,16 +377,17 @@ class InferencePage(QWidget):
         
         # 右侧区域
         # 上侧区域
-        top_layout = QHBoxLayout()
+        top_container = QWidget()
+        top_layout = QHBoxLayout(top_container)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(12)
         # 左上：大预览区域
         large_preview = self.create_preview_area()
         top_layout.addWidget(large_preview, 1)
-        # 右下：音频设备和控制
+        # 右上：音频设备和控制
         control_panel = self.create_audio_device_panel()
         top_layout.addWidget(control_panel, 1)
-        right_layout.addLayout(top_layout, 3)
+        right_layout.addWidget(top_container, 2)
         
         # 下侧区域：音频控制
         bottom_panel = self.create_control_panel()
@@ -774,12 +778,12 @@ class InferencePage(QWidget):
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(20)
         
-        # 右侧：滑块和控制
+        # 滑块和控制
         controls_layout = QVBoxLayout()
-        controls_layout.setSpacing(15)
+        controls_layout.setSpacing(8)
         
         # 音调滑块
-        pitch_container, self.pitch_slider, pitch_value_label = self.create_slider(
+        pitch_container, self.pitch_slider, pitch_value_label = create_slider(
             "音调", self.gui_config.pitch, -12, 12, self.gui_config.pitch
         )
         self.pitch_slider.valueChanged.connect(
@@ -788,7 +792,7 @@ class InferencePage(QWidget):
         controls_layout.addWidget(pitch_container)
         
         # 声音粗细滑块
-        formant_container, self.formant_slider, formant_value_label = self.create_slider(
+        formant_container, self.formant_slider, formant_value_label = create_slider(
             "声音粗细", self.gui_config.formant, -2.0, 2.0, self.gui_config.formant, step=0.05
         )
         self.formant_slider.valueChanged.connect(
@@ -797,7 +801,7 @@ class InferencePage(QWidget):
         controls_layout.addWidget(formant_container)
         
         # 声音延迟滑块（对应block_time）
-        delay_container, self.delay_slider, delay_value_label = self.create_slider(
+        delay_container, self.delay_slider, delay_value_label = create_slider(
             "声音延迟", self.gui_config.block_time, 0.02, 1.5, self.gui_config.block_time, step=0.01
         )
         self.delay_slider.valueChanged.connect(
@@ -848,46 +852,6 @@ class InferencePage(QWidget):
         
         return panel
     
-    def create_slider(self, label_text, value, min_val, max_val, default_val, step=1):
-        """创建滑块控件，返回容器、滑块和值标签"""
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(9)
-        container.setStyleSheet("background-color: transparent;")
-        
-        # 标签和值
-        label_layout = QHBoxLayout()
-        label = QLabel(label_text)
-        label.setStyleSheet("color: #ffffff; font-size: 14px; border: none; background-color: transparent;")
-        value_label = QLabel(str(value))
-        value_label.setStyleSheet("color: #8b5cf6; font-size: 14px; font-weight: bold; border: none; background-color: transparent;")
-        value_label.setMinimumWidth(50)
-        value_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        
-        label_layout.addWidget(label)
-        label_layout.addWidget(value_label)
-        layout.addLayout(label_layout)
-        
-        # 滑块
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setMinimum(int(min_val / step))
-        slider.setMaximum(int(max_val / step))
-        slider.setValue(int(default_val / step))
-        slider.setFixedHeight(18)
-        # 样式由全局样式表提供
-        
-        # 连接信号更新值显示
-        def update_value(val):
-            actual_val = val * step
-            value_label.setText(f"{actual_val:.2f}" if step < 1 else str(actual_val))
-        
-        slider.valueChanged.connect(update_value)
-        slider.setCursor(Qt.CursorShape.PointingHandCursor)
-        
-        layout.addWidget(slider)
-        
-        return container, slider, value_label
     
     def create_algorithm_group(self):
         """创建音高算法选择组"""
@@ -940,7 +904,7 @@ class InferencePage(QWidget):
         
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(20)
+        layout.setSpacing(12)
         
         # 标题和推理时间
         header_layout = QHBoxLayout()
@@ -962,6 +926,12 @@ class InferencePage(QWidget):
         header_layout.addWidget(self.time_value)
         
         layout.addLayout(header_layout)
+
+        # 设备协议
+        protocol_group, self.protocol_combo = self.create_device_group(
+            "设备协议", self.hostapis, self.gui_config.sg_hostapi
+        )
+        layout.addWidget(protocol_group)
         
         # 输入设备
         input_group, self.input_device_combo = self.create_device_group(
