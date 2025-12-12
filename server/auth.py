@@ -13,12 +13,9 @@ from server.models import User
 from server.schemas import UserResponse
 
 # 密码加密上下文
-# 使用bcrypt，但如果bcrypt不可用则回退到pbkdf2_sha256
-try:
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-except Exception:
-    # 如果bcrypt有问题，使用pbkdf2_sha256作为备选
-    pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+# 直接使用pbkdf2_sha256，避免bcrypt版本兼容性问题
+# pbkdf2_sha256是passlib内置的，无需额外依赖，且没有密码长度限制
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # OAuth2密码流
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
@@ -26,21 +23,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    # bcrypt限制密码最大72字节，如果超过则先进行哈希处理
-    if len(plain_password.encode('utf-8')) > 72:
-        import hashlib
-        # 先进行SHA256哈希，然后验证
-        plain_password = hashlib.sha256(plain_password.encode('utf-8')).hexdigest()
     return pwd_context.verify(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
     """获取密码哈希"""
-    # bcrypt限制密码最大72字节，如果超过则先进行哈希处理
-    if len(password.encode('utf-8')) > 72:
-        import hashlib
-        # 先进行SHA256哈希，然后使用bcrypt
-        password = hashlib.sha256(password.encode('utf-8')).hexdigest()
     return pwd_context.hash(password)
 
 
