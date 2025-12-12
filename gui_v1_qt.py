@@ -33,8 +33,6 @@ class MainWindow(QMainWindow):
         self.is_logged_in = False  # 登录状态
         self.current_username = None  # 当前登录用户名
         self.init_ui()
-        # 检查是否有已保存的登录状态
-        self._check_saved_login()
     
     def init_ui(self):
         """初始化用户界面"""
@@ -311,22 +309,6 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "注册成功！请登录")
             # 切换到登录页面
             self.show_login()
-    
-    def _check_saved_login(self):
-        """检查是否有已保存的登录状态"""
-        from api.auth import auth_api
-        
-        if auth_api.is_logged_in():
-            # 验证token是否有效
-            result = auth_api.get_current_user()
-            if result.get("success"):
-                self.is_logged_in = True
-                self.current_username = result.get("user", {}).get("username")
-                # 切换到主应用界面
-                self.main_stack.setCurrentWidget(self.app_container)
-            else:
-                # Token无效，清除
-                auth_api.logout()
     
     def on_logout_clicked(self):
         """退出登录按钮点击事件"""

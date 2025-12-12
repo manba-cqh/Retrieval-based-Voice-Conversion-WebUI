@@ -1,12 +1,14 @@
-"""模型相关API"""
-import requests
+"""模型相关API（异步版本）"""
 from typing import Optional, Dict, Any, List
+import os
+import httpx
+from .async_client import AsyncAPIClient
 from .config import API_MODELS
 from .auth import auth_api
 
 
-class ModelsAPI:
-    """模型API客户端"""
+class ModelsAPI(AsyncAPIClient):
+    """模型API客户端（异步）"""
     
     def __init__(self, base_url: Optional[str] = None):
         """
@@ -15,12 +17,14 @@ class ModelsAPI:
         Args:
             base_url: API基础URL，如果为None则使用默认配置
         """
-        self.base_url = base_url
+        super().__init__(base_url=base_url)
     
     def _get_url(self, endpoint: str) -> str:
         """获取完整的API URL"""
         if self.base_url:
-            return f"{self.base_url}{endpoint.replace(API_MODELS.split('/api')[0], '')}"
+            if endpoint.startswith("http"):
+                return endpoint.replace(API_MODELS.split('/api')[0], self.base_url)
+            return f"{self.base_url}{endpoint.split('/api')[1] if '/api' in endpoint else endpoint}"
         return endpoint
     
     def _get_headers(self) -> Dict[str, str]:
@@ -30,7 +34,7 @@ class ModelsAPI:
             headers["Authorization"] = f"Bearer {auth_api.token}"
         return headers
     
-    def get_models(
+    async def get_models(
         self,
         skip: int = 0,
         limit: int = 20,
@@ -38,7 +42,7 @@ class ModelsAPI:
         search: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        获取模型列表
+        获取模型列表（异步）
         
         Args:
             skip: 跳过的记录数
@@ -59,41 +63,18 @@ class ModelsAPI:
         if search:
             params["search"] = search
         
-        try:
-            response = requests.get(
-                url,
-                params=params,
-                headers=self._get_headers(),
-                timeout=10
-            )
-            response.raise_for_status()
-            result = response.json()
-            return {
-                "success": True,
-                "data": result,
-                "models": result.get("items", []),
-                "total": result.get("total", 0)
-            }
-        except requests.exceptions.HTTPError as e:
-            error_msg = "获取模型列表失败"
-            try:
-                error_data = e.response.json()
-                error_msg = error_data.get("detail", error_msg)
-            except:
-                error_msg = f"获取模型列表失败: {e.response.status_code}"
-            return {
-                "success": False,
-                "message": error_msg
-            }
-        except requests.exceptions.RequestException as e:
-            return {
-                "success": False,
-                "message": f"网络错误: {str(e)}"
-            }
+        result = await self.get(url, headers=self._get_headers(), params=params)
+        
+        if result.get("success"):
+            data = result.get("data", {})
+            result["models"] = data.get("items", [])
+            result["total"] = data.get("total", 0)
+        
+        return result
     
-    def get_model(self, model_id: int) -> Dict[str, Any]:
+    async def get_model(self, model_id: int) -> Dict[str, Any]:
         """
-        获取模型详情
+        获取模型详情（异步）
         
         Args:
             model_id: 模型ID
@@ -103,39 +84,16 @@ class ModelsAPI:
         """
         url = f"{self._get_url(API_MODELS)}/{model_id}"
         
-        try:
-            response = requests.get(
-                url,
-                headers=self._get_headers(),
-                timeout=10
-            )
-            response.raise_for_status()
-            result = response.json()
-            return {
-                "success": True,
-                "data": result,
-                "model": result
-            }
-        except requests.exceptions.HTTPError as e:
-            error_msg = "获取模型详情失败"
-            try:
-                error_data = e.response.json()
-                error_msg = error_data.get("detail", error_msg)
-            except:
-                error_msg = f"获取模型详情失败: {e.response.status_code}"
-            return {
-                "success": False,
-                "message": error_msg
-            }
-        except requests.exceptions.RequestException as e:
-            return {
-                "success": False,
-                "message": f"网络错误: {str(e)}"
-            }
+        result = await self.get(url, headers=self._get_headers())
+        
+        if result.get("success"):
+            result["model"] = result.get("data")
+        
+        return result
     
-    def download_model(self, model_id: int, save_path: str) -> Dict[str, Any]:
+    async def download_model(self, model_id: int, save_path: str) -> Dict[str, Any]:
         """
-        下载模型文件
+        下载模型文件（异步）
         
         Args:
             model_id: 模型ID
@@ -145,30 +103,28 @@ class ModelsAPI:
             下载结果字典
         """
         url = f"{self._get_url(API_MODELS)}/{model_id}/file"
+        headers = self._get_headers()
+        
+        client = self._get_client()
         
         try:
-            response = requests.get(
-                url,
-                headers=self._get_headers(),
-                stream=True,
-                timeout=30
-            )
-            response.raise_for_status()
-            
-            # 保存文件
-            import os
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            
-            with open(save_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            return {
-                "success": True,
-                "message": "下载成功",
-                "path": save_path
-            }
-        except requests.exceptions.HTTPError as e:
+            async with client.stream("GET", url, headers=headers) as response:
+                response.raise_for_status()
+                
+                # 确保目录存在
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                
+                # 保存文件
+                with open(save_path, 'wb') as f:
+                    async for chunk in response.aiter_bytes():
+                        f.write(chunk)
+                
+                return {
+                    "success": True,
+                    "message": "下载成功",
+                    "path": save_path
+                }
+        except httpx.HTTPStatusError as e:
             error_msg = "下载模型失败"
             try:
                 error_data = e.response.json()
@@ -179,10 +135,10 @@ class ModelsAPI:
                 "success": False,
                 "message": error_msg
             }
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             return {
                 "success": False,
-                "message": f"网络错误: {str(e)}"
+                "message": f"下载错误: {str(e)}"
             }
 
 

@@ -5,8 +5,9 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QCheckBox, QFrame, QMessageBox, QStackedWidget
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSignal
 from api.auth import auth_api
+from api.async_utils import AsyncTaskManager
 
 
 class PasswordWidget(QLineEdit):
@@ -72,6 +73,7 @@ class AuthPage(QWidget):
     
     def __init__(self):
         super().__init__()
+        self.task_manager = AsyncTaskManager()  # 异步任务管理器
         self.init_ui()
     
     def init_ui(self):
@@ -161,11 +163,11 @@ class AuthPage(QWidget):
         dialog_layout.addLayout(options_layout)
         
         # 登录按钮
-        login_btn = QPushButton("登录")
-        login_btn.setProperty("auth_primary", True)
-        login_btn.setStyleSheet("background-color: #0068B7;")   # 不知为啥在style.qss中设置背景颜色无效
-        login_btn.clicked.connect(self.on_login)
-        dialog_layout.addWidget(login_btn)
+        self.login_btn = QPushButton("登录")
+        self.login_btn.setProperty("auth_primary", True)
+        self.login_btn.setStyleSheet("background-color: #0068B7;")   # 不知为啥在style.qss中设置背景颜色无效
+        self.login_btn.clicked.connect(self.on_login)
+        dialog_layout.addWidget(self.login_btn)
         
         # 注册链接
         register_layout = QHBoxLayout()
@@ -262,11 +264,11 @@ class AuthPage(QWidget):
         dialog_layout.addWidget(self.activation_input)
         
         # 注册按钮
-        register_btn = QPushButton("注册")
-        register_btn.setProperty("auth_primary", True)
-        register_btn.setStyleSheet("background-color: #0068B7;")   # 不知为啥在style.qss中设置背景颜色无效
-        register_btn.clicked.connect(self.on_register)
-        dialog_layout.addWidget(register_btn)
+        self.register_btn = QPushButton("注册")
+        self.register_btn.setProperty("auth_primary", True)
+        self.register_btn.setStyleSheet("background-color: #0068B7;")   # 不知为啥在style.qss中设置背景颜色无效
+        self.register_btn.clicked.connect(self.on_register)
+        dialog_layout.addWidget(self.register_btn)
         
         # 登录链接
         login_layout = QHBoxLayout()
@@ -324,8 +326,32 @@ class AuthPage(QWidget):
             QMessageBox.warning(self, "提示", "请先同意用户协议")
             return
         
-        # 调用登录API
-        result = auth_api.login(username, password)
+        # 禁用登录按钮
+        self.login_btn.setEnabled(False)
+        self.login_btn.setText("登录中...")
+        
+        # 异步调用登录API
+        thread, worker = self.task_manager.run_task(
+            "login",
+            auth_api.login(username, password)
+        )
+        
+        # 连接信号
+        worker.finished.connect(
+            lambda result: self._on_login_result(username, password, result)
+        )
+        worker.error.connect(
+            lambda error: self._on_login_error(error)
+        )
+        
+        # 启动线程
+        thread.start()
+    
+    def _on_login_result(self, username: str, password: str, result: dict):
+        """登录结果处理"""
+        # 恢复登录按钮
+        self.login_btn.setEnabled(True)
+        self.login_btn.setText("登录")
         
         if result.get("success"):
             # 登录成功，发送信号
@@ -333,6 +359,14 @@ class AuthPage(QWidget):
         else:
             # 登录失败，显示错误信息
             QMessageBox.warning(self, "登录失败", result.get("message", "登录失败，请检查用户名和密码"))
+    
+    def _on_login_error(self, error: str):
+        """登录错误处理"""
+        # 恢复登录按钮
+        self.login_btn.setEnabled(True)
+        self.login_btn.setText("登录")
+        
+        QMessageBox.warning(self, "登录错误", f"登录过程中发生错误: {error}")
     
     def on_forgot_password(self):
         """忘记密码"""
@@ -378,12 +412,36 @@ class AuthPage(QWidget):
             QMessageBox.warning(self, "提示", "请输入激活码")
             return
         
-        # 调用注册API（注意：服务端可能不需要激活码，这里先传递）
-        result = auth_api.register(
-            username=username,
-            password=password,
-            phone=phone
+        # 禁用注册按钮
+        self.register_btn.setEnabled(False)
+        self.register_btn.setText("注册中...")
+        
+        # 异步调用注册API
+        thread, worker = self.task_manager.run_task(
+            "register",
+            auth_api.register(
+                username=username,
+                password=password,
+                phone=phone
+            )
         )
+        
+        # 连接信号
+        worker.finished.connect(
+            lambda result: self._on_register_result(username, password, phone, activation_code, result)
+        )
+        worker.error.connect(
+            lambda error: self._on_register_error(error)
+        )
+        
+        # 启动线程
+        thread.start()
+    
+    def _on_register_result(self, username: str, password: str, phone: str, activation_code: str, result: dict):
+        """注册结果处理"""
+        # 恢复注册按钮
+        self.register_btn.setEnabled(True)
+        self.register_btn.setText("注册")
         
         if result.get("success"):
             # 注册成功，发送信号
@@ -391,6 +449,14 @@ class AuthPage(QWidget):
         else:
             # 注册失败，显示错误信息
             QMessageBox.warning(self, "注册失败", result.get("message", "注册失败，请重试"))
+    
+    def _on_register_error(self, error: str):
+        """注册错误处理"""
+        # 恢复注册按钮
+        self.register_btn.setEnabled(True)
+        self.register_btn.setText("注册")
+        
+        QMessageBox.warning(self, "注册错误", f"注册过程中发生错误: {error}")
     
     def on_agreement_clicked(self):
         """用户协议链接点击"""
