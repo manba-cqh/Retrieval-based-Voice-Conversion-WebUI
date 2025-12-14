@@ -918,7 +918,7 @@ class HomePage(BasePage):
         categories_layout.setSpacing(10)
         
         self.category_buttons = {}
-        categories = ["全部", "入门", "真人拟声"]
+        categories = ["全部", "天籁Lite", "天籁Ultra"]
         
         for category in categories:
             btn = QPushButton(category)
@@ -1057,8 +1057,8 @@ class HomePage(BasePage):
                 # 没有图片
                 model_image = ""
             
-            # 获取分类信息（从json中读取，默认为"入门"）
-            category = model_info.get("category", "入门")
+            # 获取分类信息（从json中读取，默认为"天籁Lite"）
+            category = model_info.get("category", "天籁Lite")
             
             # 构建模型数据（兼容主页的数据结构）
             model_data = {

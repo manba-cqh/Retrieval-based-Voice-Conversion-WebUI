@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QFrame, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QSize, QPoint
-from PyQt6.QtGui import QFont, QIcon, QMouseEvent, QPixmap, QPainter, QBrush, QLinearGradient, QMovie
+from PyQt6.QtGui import QFont, QIcon, QMouseEvent, QPixmap, QPainter, QBrush, QLinearGradient, QMovie, QPaintEvent
 
 # 导入页面类
 from pages import (
@@ -23,6 +23,31 @@ from pages import (
     AuthPage,
     AgreementPage
 )
+
+class BackgroundWidget(QWidget):
+    """带背景图片的Widget"""
+    def __init__(self, background_path, parent=None):
+        super().__init__(parent)
+        self.background_path = background_path
+        self.background_pixmap = None
+        if os.path.exists(background_path):
+            self.background_pixmap = QPixmap(background_path)
+    
+    def paintEvent(self, event: QPaintEvent):
+        """绘制背景图片"""
+        if self.background_pixmap:
+            painter = QPainter(self)
+            # 缩放图片以适应窗口大小，保持宽高比
+            scaled_pixmap = self.background_pixmap.scaled(
+                self.size(), 
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            # 居中绘制
+            x = (self.width() - scaled_pixmap.width()) // 2
+            y = (self.height() - scaled_pixmap.height()) // 2
+            painter.drawPixmap(x, y, scaled_pixmap)
+        super().paintEvent(event)
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -83,8 +108,8 @@ class MainWindow(QMainWindow):
         """)
         self.auth_close_btn.clicked.connect(self.close)
         
-        # 主页面容器
-        self.app_container = QWidget()
+        # 主页面容器（带背景图片）
+        self.app_container = BackgroundWidget("")
         self.main_stack.addWidget(self.app_container)
         app_layout = QVBoxLayout(self.app_container)
         app_layout.setContentsMargins(0, 0, 0, 0)
@@ -119,7 +144,7 @@ class MainWindow(QMainWindow):
         logo_font.setPointSize(18)
         logo_font.setBold(True)
         logo_label.setFont(logo_font)
-        logo_label.setPixmap(QPixmap("res/logo.png").scaled(82, 32))
+        logo_label.setPixmap(QPixmap("res/logo.jpg").scaled(128, 37))
         top_layout.addWidget(logo_label)
         
         top_layout.addStretch()
@@ -139,9 +164,15 @@ class MainWindow(QMainWindow):
             icon = QIcon(icon_path)
             btn = QPushButton(icon, text)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setFixedHeight(32)
+            btn.setStyleSheet("""
+                QPushButton {
+                    font-size: 32px;
+                }
+            """)
             
             # 设置图标大小
-            btn.setIconSize(QSize(20, 20))
+            btn.setIconSize(QSize(26, 26))
             
             # 基础样式由全局样式表提供，只设置特殊样式
             btn.setStyleSheet("text-align: left;")
