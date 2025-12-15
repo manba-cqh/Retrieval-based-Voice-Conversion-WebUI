@@ -15,7 +15,8 @@ from server.config import settings
 app = FastAPI(
     title="RVC模型服务API",
     description="用户认证和模型管理API",
-    version="1.0.0"
+    version="1.0.0",
+    redirect_slashes=False  # 禁用自动重定向，避免307错误
 )
 
 # 配置CORS
@@ -51,10 +52,34 @@ async def startup_event():
         init_db()
         print(f"数据库初始化完成")
         print(f"数据库文件路径: {os.path.abspath(db_path) if db_path else '内存数据库'}")
-        print(f"模型文件路径: {os.path.abspath(settings.models_base_path)}")
     except Exception as e:
         print(f"数据库初始化失败: {e}")
         raise
+    
+    # 同步模型到数据库
+    try:
+        from server.services.model_sync import model_sync_service
+        # 打印模型文件路径（使用model_sync_service中的实际路径）
+        print(f"模型文件路径: {model_sync_service.models_base_path}")
+        print("开始同步模型到数据库...")
+        stats = model_sync_service.sync()
+        print(f"模型同步完成: 总计={stats['total']}, "
+              f"新建={stats['created']}, 更新={stats['updated']}, "
+              f"跳过={stats['skipped']}, 错误={stats['errors']}")
+    except Exception as e:
+        print(f"模型同步失败: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # 启动文件监听（后台任务）
+    try:
+        from server.services.model_sync import start_file_watcher
+        start_file_watcher()
+        print("文件监听已启动")
+    except Exception as e:
+        print(f"启动文件监听失败: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 @app.get("/")

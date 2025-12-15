@@ -27,9 +27,10 @@ class Model(Base):
     __tablename__ = "models"
     
     id = Column(Integer, primary_key=True, index=True)
+    uid = Column(String(64), nullable=False, unique=True, index=True)  # 唯一标识符（基于文件路径和哈希）
     name = Column(String(200), nullable=False, index=True)
     description = Column(Text, nullable=True)
-    file_path = Column(String(500), nullable=False)  # 服务器上的文件路径
+    file_path = Column(String(500), nullable=False, index=True)  # 服务器上的文件路径（不再唯一）
     file_name = Column(String(200), nullable=False)  # 原始文件名
     file_size = Column(Integer, nullable=False)  # 文件大小（字节）
     file_hash = Column(String(64), nullable=True)  # 文件MD5哈希值

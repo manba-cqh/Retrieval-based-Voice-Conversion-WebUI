@@ -8,5 +8,5 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 API_AUTH_REGISTER = f"{API_BASE_URL}/api/auth/register"
 API_AUTH_LOGIN = f"{API_BASE_URL}/api/auth/login"
 API_AUTH_ME = f"{API_BASE_URL}/api/auth/me"
-API_MODELS = f"{API_BASE_URL}/api/models"
+API_MODELS = f"{API_BASE_URL}/api/models/"
 

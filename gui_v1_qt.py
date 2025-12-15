@@ -317,6 +317,9 @@ class MainWindow(QMainWindow):
             self.current_username = username
             # 切换到主应用界面
             self.main_stack.setCurrentWidget(self.app_container)
+            # 重新加载主页模型数据
+            if "home" in self.pages:
+                self.pages["home"].load_models()
         else:
             # 如果API调用失败，这里不应该被调用
             from PyQt6.QtWidgets import QMessageBox

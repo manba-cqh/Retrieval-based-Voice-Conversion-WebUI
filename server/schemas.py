@@ -62,7 +62,9 @@ class ModelCreate(ModelBase):
 class ModelResponse(ModelBase):
     """模型响应"""
     id: int
+    uid: str  # 唯一标识符
     file_name: str
+    file_path: str  # 服务器上的文件路径（相对路径）
     file_size: int
     download_count: int
     is_public: bool

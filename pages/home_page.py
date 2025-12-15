@@ -1,6 +1,8 @@
 """主页"""
 import json
 import os
+import tempfile
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QScrollArea, QGridLayout, QFrame, QStackedWidget,
@@ -11,6 +13,9 @@ from PyQt6.QtGui import QFont, QPixmap, QIcon
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 from .base_page import BasePage
+from api.models import models_api
+from api.async_utils import run_async
+from api.auth import auth_api
 
 
 class ModelCard(QFrame):
@@ -455,37 +460,23 @@ class ModelDetailPage(QWidget):
         # 支持的音频格式
         audio_extensions = (".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac")
         
-        # 先尝试从 net_models 目录查找（主页使用）
-        net_models_dir = os.path.join(os.getcwd(), "net_models")
-        if os.path.exists(net_models_dir):
-            for item in os.listdir(net_models_dir):
-                model_dir_path = os.path.join(net_models_dir, item)
-                if os.path.isdir(model_dir_path):
-                    # 检查目录名或json中的name是否匹配
-                    json_files = [f for f in os.listdir(model_dir_path) if f.endswith(".json")]
-                    if json_files:
-                        try:
-                            json_path = os.path.join(model_dir_path, json_files[0])
-                            with open(json_path, 'r', encoding='utf-8') as f:
-                                model_info = json.load(f)
-                            if model_info.get("name", item) == model_name:
+        # 从服务端的models目录查找（使用file_path）
+        file_path = self.model_data.get("pth_path", "")
+        if file_path:
+            # file_path是相对路径，需要拼接models目录
+            models_base_path = os.path.join(os.getcwd(), "models")
+            full_file_path = os.path.join(models_base_path, file_path)
+            file_dir = os.path.dirname(full_file_path)
+            
+            if os.path.exists(file_dir):
                                 # 查找音频文件
-                                audio_files = [f for f in os.listdir(model_dir_path) 
-                                             if f.lower().endswith(audio_extensions)]
-                                if audio_files:
-                                    self.audio_file_path = os.path.join(model_dir_path, audio_files[0])
-                                    return
-                        except:
-                            pass
-                    # 如果目录名匹配
-                    if item == model_name:
-                        audio_files = [f for f in os.listdir(model_dir_path) 
-                                     if f.lower().endswith(audio_extensions)]
-                        if audio_files:
-                            self.audio_file_path = os.path.join(model_dir_path, audio_files[0])
-                            return
+                audio_files = [f for f in os.listdir(file_dir) 
+                    if f.lower().endswith(audio_extensions)]
+                if audio_files:
+                    self.audio_file_path = os.path.join(file_dir, audio_files[0])
+                    return
         
-        # 再尝试从 models 目录查找（管理页使用）
+        # 如果file_path不可用，尝试从 models 目录查找（通过模型名称匹配）
         models_dir = os.path.join(os.getcwd(), "models")
         if os.path.exists(models_dir):
             for item in os.listdir(models_dir):
@@ -695,14 +686,16 @@ class ModelDetailPage(QWidget):
         info_label.setStyleSheet("font-size: 14px; border: none; background-color: transparent; padding: 0px;")
         layout.addWidget(info_label)
         
-        # 下载按钮
-        download_layout = QHBoxLayout()
+        # 下载按钮和进度条
+        download_layout = QVBoxLayout()
         download_layout.setContentsMargins(0, 0, 24, 0)
-        download_layout.setSpacing(0)
+        download_layout.setSpacing(10)
         
-        download_btn = QPushButton("开始下载")
-        download_btn.setFixedSize(96, 36)
-        download_btn.setStyleSheet("""
+        btn_layout = QHBoxLayout()
+        
+        self.download_btn = QPushButton("开始下载")
+        self.download_btn.setFixedSize(96, 36)
+        self.download_btn.setStyleSheet("""
             QPushButton {
                 background-color: #8b5cf6;
                 color: #ffffff;
@@ -715,11 +708,41 @@ class ModelDetailPage(QWidget):
             QPushButton:hover {
                 background-color: #7c3aed;
             }
+            QPushButton:disabled {
+                background-color: #555555;
+                color: #888888;
+            }
         """)
-        download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        download_btn.clicked.connect(self.on_download_clicked)
-        download_layout.addStretch()
-        download_layout.addWidget(download_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.download_btn.clicked.connect(self.on_download_clicked)
+        
+        # 进度条
+        self.download_progress = QProgressBar()
+        self.download_progress.setVisible(False)
+        self.download_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #555555;
+                border-radius: 4px;
+                text-align: center;
+                background-color: #1a1a1a;
+                color: #ffffff;
+            }
+            QProgressBar::chunk {
+                background-color: #8b5cf6;
+                border-radius: 3px;
+            }
+        """)
+        self.download_status_label = QLabel("")
+        self.download_status_label.setVisible(False)
+        self.download_status_label.setStyleSheet("color: #888888; font-size: 12px; border: none; background-color: transparent; padding: 0px;")
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.download_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        btn_layout.addStretch()
+        
+        download_layout.addLayout(btn_layout)
+        download_layout.addWidget(self.download_progress)
+        download_layout.addWidget(self.download_status_label)
         
         layout.addLayout(download_layout)
         return section
@@ -817,7 +840,137 @@ class ModelDetailPage(QWidget):
     
     def on_download_clicked(self):
         """下载按钮点击"""
-        QMessageBox.information(self, "提示", "开始下载音色模型...")
+        model_uuid = self.model_data.get("uid")
+        if not model_uuid:
+            QMessageBox.warning(self, "错误", "模型UUID不存在")
+            return
+        
+        # 禁用下载按钮
+        self.download_btn.setEnabled(False)
+        self.download_btn.setText("下载中...")
+        
+        # 显示进度条
+        self.download_progress.setVisible(True)
+        self.download_progress.setValue(0)
+        self.download_status_label.setVisible(True)
+        self.download_status_label.setText("准备下载...")
+        
+        # 创建异步下载任务
+        async def download_and_extract():
+            try:
+                # 创建临时文件保存压缩包
+                temp_dir = tempfile.gettempdir()
+                model_name = self.model_data.get("name", "model")
+                # 清理文件名中的非法字符
+                safe_name = "".join(c for c in model_name if c.isalnum() or c in (' ', '-', '_')).strip()
+                package_path = os.path.join(temp_dir, f"{safe_name}.7z")
+                
+                # 下载进度回调
+                def progress_callback(downloaded, total):
+                    if total > 0:
+                        percent = int((downloaded / total) * 100)
+                        self.download_progress.setValue(percent)
+                        self.download_status_label.setText(f"下载中: {downloaded // 1024 // 1024}MB / {total // 1024 // 1024}MB")
+                
+                # 下载压缩包
+                self.download_status_label.setText("正在下载压缩包...")
+                result = await models_api.download_model_package(
+                    model_uuid,
+                    package_path,
+                    progress_callback=progress_callback
+                )
+                
+                if not result.get("success"):
+                    return {
+                        "success": False,
+                        "message": result.get("message", "下载失败")
+                    }
+                
+                # 解压压缩包
+                self.download_status_label.setText("正在解压...")
+                self.download_progress.setValue(50)
+                
+                # 客户端models目录
+                client_models_dir = os.path.join(os.getcwd(), "models")
+                os.makedirs(client_models_dir, exist_ok=True)
+                
+                # 解压到models目录
+                try:
+                    import py7zr
+                    with py7zr.SevenZipFile(package_path, mode='r') as archive:
+                        archive.extractall(path=client_models_dir)
+                except ImportError:
+                    # 如果没有py7zr，尝试使用7z命令行工具
+                    import subprocess
+                    result = subprocess.run(
+                        ['7z', 'x', package_path, f'-o{client_models_dir}', '-y'],
+                        capture_output=True,
+                        text=True
+                    )
+                    if result.returncode != 0:
+                        return {
+                            "success": False,
+                            "message": f"解压失败: {result.stderr}"
+                        }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "message": f"解压失败: {str(e)}"
+                    }
+                
+                # 删除临时压缩包
+                try:
+                    os.remove(package_path)
+                except:
+                    pass
+                
+                self.download_progress.setValue(100)
+                self.download_status_label.setText("下载完成！")
+                
+                return {
+                    "success": True,
+                    "message": "模型下载并解压完成",
+                    "path": client_models_dir
+                }
+                
+            except Exception as e:
+                return {
+                    "success": False,
+                    "message": f"下载失败: {str(e)}"
+                }
+        
+        # 使用异步工具运行
+        self.download_thread, self.download_worker = run_async(download_and_extract())
+        self.download_worker.finished.connect(self.on_download_finished)
+        self.download_worker.error.connect(self.on_download_error)
+        self.download_thread.start()
+    
+    def on_download_finished(self, result):
+        """下载完成"""
+        # 恢复下载按钮
+        self.download_btn.setEnabled(True)
+        self.download_btn.setText("开始下载")
+        
+        if result.get("success"):
+            QMessageBox.information(self, "成功", "模型下载并解压完成！\n已保存到: models目录")
+            self.download_status_label.setText("下载完成！")
+            # 3秒后隐藏进度条
+            QTimer.singleShot(3000, lambda: (
+                self.download_progress.setVisible(False),
+                self.download_status_label.setVisible(False)
+            ))
+        else:
+            QMessageBox.warning(self, "错误", result.get("message", "下载失败"))
+            self.download_progress.setVisible(False)
+            self.download_status_label.setVisible(False)
+    
+    def on_download_error(self, error_msg):
+        """下载出错"""
+        self.download_btn.setEnabled(True)
+        self.download_btn.setText("开始下载")
+        self.download_progress.setVisible(False)
+        self.download_status_label.setVisible(False)
+        QMessageBox.warning(self, "错误", f"下载失败: {error_msg}")
 
 
 class HomePage(BasePage):
@@ -860,10 +1013,10 @@ class HomePage(BasePage):
         list_layout.addWidget(toolbar)
         
         # 模型网格区域
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
         # 基础样式由全局样式表提供，只设置特殊样式
-        scroll_area.setStyleSheet("""
+        self.scroll_area.setStyleSheet("""
             QScrollArea {
                 border: none;
             }
@@ -896,13 +1049,30 @@ class HomePage(BasePage):
         grid_container.addStretch()  # 添加右侧拉伸，使卡片靠左对齐
         
         grid_widget.setLayout(grid_container)
-        scroll_area.setWidget(grid_widget)
-        list_layout.addWidget(scroll_area)
+        self.scroll_area.setWidget(grid_widget)
+        list_layout.addWidget(self.scroll_area)
         
         self.stacked_widget.addWidget(self.list_page)
         
         # 详情页面（初始为空，点击详情时创建）
         self.detail_page = None
+        
+        # 加载状态标签
+        self.loading_label = QLabel("正在加载模型数据...")
+        self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_label.setStyleSheet("""
+            QLabel {
+                color: #8b5cf6;
+                font-size: 16px;
+                padding: 20px;
+            }
+        """)
+        list_layout.addWidget(self.loading_label)
+        self.loading_label.hide()
+        
+        # 异步任务线程
+        self.load_thread = None
+        self.load_worker = None
     
     def create_toolbar(self):
         """创建顶部工具栏"""
@@ -918,6 +1088,7 @@ class HomePage(BasePage):
         categories_layout.setSpacing(10)
         
         self.category_buttons = {}
+        # 默认分类，加载数据后会更新
         categories = ["全部", "天籁Lite", "天籁Ultra"]
         
         for category in categories:
@@ -982,106 +1153,348 @@ class HomePage(BasePage):
 
         layout.addLayout(categories_layout)
         
+        # 保存工具栏和分类布局的引用，以便后续更新
+        self.toolbar_widget = toolbar
+        self.categories_layout = categories_layout
+        
         return toolbar
     
     def load_models(self):
-        """从net_models目录加载模型数据"""
-        self.models_data = self.fetch_models_from_net_models_dir()
-        self.filtered_models = self.models_data.copy()
-        self.update_model_grid()
+        """从服务端API加载模型数据"""
+        # 检查登录状态
+        if not auth_api.is_logged_in():
+            print("未登录，无法加载模型数据")
+            self.loading_label.hide()
+            if hasattr(self, 'scroll_area'):
+                self.scroll_area.show()
+            # 显示空列表
+            self.models_data = []
+            self.filtered_models = []
+            self.update_model_grid()
+            return
+        
+        # 显示加载提示，隐藏网格区域
+        self.loading_label.show()
+        if hasattr(self, 'scroll_area'):
+            self.scroll_area.hide()
+        
+        # 创建异步任务
+        async def fetch_models():
+            """异步获取模型列表（分页获取所有模型）"""
+            all_models = []
+            skip = 0
+            limit = 100  # 每次获取100条
+            total = None
+            
+            while True:
+                # 获取当前页的模型
+                result = await models_api.get_models(skip=skip, limit=limit)
+                
+                if not result.get("success"):
+                    # 如果请求失败，返回已获取的数据
+                    break
+                
+                # 获取总数（只在第一次获取）
+                if total is None:
+                    total = result.get("total", 0)
+                
+                # 获取当前页的模型列表
+                models = result.get("models", [])
+                if not models:
+                    break
+                
+                all_models.extend(models)
+                
+                # 如果已经获取了所有模型，退出循环
+                if len(all_models) >= total:
+                    break
+                
+                # 准备获取下一页
+                skip += limit
+            
+            # 返回合并后的结果
+            return {
+                "success": True,
+                "models": all_models,
+                "total": len(all_models)
+            }
+        
+        # 使用异步工具运行
+        self.load_thread, self.load_worker = run_async(fetch_models())
+            
+        # 连接信号
+        self.load_worker.finished.connect(self.on_models_loaded)
+        self.load_worker.error.connect(self.on_models_load_error)
+        
+        # 启动线程
+        self.load_thread.start()
     
-    def fetch_models_from_net_models_dir(self):
-        """从net_models目录获取模型数据"""
-        net_models_dir = os.path.join(os.getcwd(), "net_models")
-        models_data = []
+    def on_models_loaded(self, result):
+        """模型数据加载完成"""
+        # 隐藏加载提示，显示网格区域
+        self.loading_label.hide()
+        if hasattr(self, 'scroll_area'):
+            self.scroll_area.show()
         
-        # 如果net_models目录不存在，返回空列表
-        if not os.path.exists(net_models_dir):
-            return models_data
+        # 检查结果
+        if result.get("success"):
+            models = result.get("models", [])
+            # 转换数据格式
+            self.models_data = [self._convert_api_model_to_local(model) for model in models]
+            self.filtered_models = self.models_data.copy()
+            
+            # 更新分类按钮（从实际数据中提取分类）
+            self._update_category_buttons()
+            
+            # 更新模型网格
+            self.update_model_grid()
+        else:
+            error_msg = result.get("message", "加载模型数据失败")
+            QMessageBox.warning(self, "错误", f"加载模型数据失败：{error_msg}")
+            # 如果API加载失败，显示空列表
+            self.models_data = []
+            self.filtered_models = []
+            self.update_model_grid()
+    
+        # 清理线程
+        if self.load_thread:
+            self.load_thread.quit()
+            self.load_thread.wait()
+            self.load_thread = None
+            self.load_worker = None
+    
+    def on_models_load_error(self, error_msg):
+        """模型数据加载出错"""
+        # 隐藏加载提示，显示网格区域
+        self.loading_label.hide()
+        if hasattr(self, 'scroll_area'):
+            self.scroll_area.show()
         
-        # 扫描net_models目录下的所有子目录
-        model_id = 1
-        for item in os.listdir(net_models_dir):
-            model_dir_path = os.path.join(net_models_dir, item)
+        QMessageBox.warning(self, "错误", f"加载模型数据时发生错误：{error_msg}")
+        # 如果API加载失败，显示空列表
+        self.models_data = []
+        self.filtered_models = []
+        self.update_model_grid()
+        
+        # 清理线程
+        if self.load_thread:
+            self.load_thread.quit()
+            self.load_thread.wait()
+            self.load_thread = None
+            self.load_worker = None
+    
+    def _convert_api_model_to_local(self, api_model):
+        """
+        将API返回的模型数据转换为主页需要的格式
+        
+        Args:
+            api_model: API返回的模型字典（ModelResponse格式）
+        
+        Returns:
+            转换后的模型字典
+        """
+        # API返回的模型数据格式（ModelResponse）：
+        # {
+        #   "id": int,
+        #   "name": str,
+        #   "description": str,
+        #   "version": str,
+        #   "category": str,
+        #   "tags": str,
+        #   "file_name": str,
+        #   "file_size": int,
+        #   "download_count": int,
+        #   "is_public": bool,
+        #   "is_active": bool,
+        #   "user_id": int,
+        #   "created_at": datetime,
+        #   "updated_at": datetime
+        # }
+        # 注意：API返回的ModelResponse中没有file_path字段，只有file_name
+        
+        # 主页需要的格式：
+        # {
+        #   "id": str,
+        #   "name": str,
+        #   "image": str,
+        #   "description": str,
+        #   "category": str,
+        #   "version": str,
+        #   "sample_rate": str,
+        #   "pth_path": str,
+        #   "index_path": str,
+        #   ...
+        # }
+        
+        # 尝试从file_path或file_name构建图片路径
+        # 假设图片文件与模型文件在同一目录，文件名相同但扩展名不同
+        image_path = ""
+        if isinstance(api_model, dict):
+            file_path = api_model.get("file_path", "")
+            file_name = api_model.get("file_name", "")
             
-            # 只处理目录
-            if not os.path.isdir(model_dir_path):
-                continue
+            # 优先使用file_path查找图片
+            if file_path:
+                file_dir = os.path.dirname(file_path)
+                file_name_without_ext = os.path.splitext(os.path.basename(file_path))[0]
+                image_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"]
+                for ext in image_extensions:
+                    potential_image = os.path.join(file_dir, file_name_without_ext + ext)
+                    if os.path.exists(potential_image):
+                        image_path = potential_image
+                        break
+                
+                # 如果没找到，尝试查找目录下的任何图片文件
+                if not image_path and os.path.exists(file_dir):
+                    for f in os.listdir(file_dir):
+                        if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")):
+                            image_path = os.path.join(file_dir, f)
+                            break
             
-            # 查找.pth文件（文件名可以是任意的，只要扩展名是.pth即可）
-            pth_files = [f for f in os.listdir(model_dir_path) if f.endswith(".pth")]
-            if not pth_files:
-                continue  # 如果没有.pth文件，跳过这个目录
-            
-            # 查找index文件（文件名可以是任意的，只要扩展名是.index即可）
-            index_files = [f for f in os.listdir(model_dir_path) if f.endswith(".index")]
-            
-            # 查找json信息文件
-            json_files = [f for f in os.listdir(model_dir_path) if f.endswith(".json")]
-            
-            # 查找图片文件（支持常见图片格式）
-            image_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
-            image_files = [f for f in os.listdir(model_dir_path) 
-                          if f.lower().endswith(image_extensions)]
-            
-            # 使用第一个找到的.pth文件
-            pth_path = os.path.join(model_dir_path, pth_files[0])
-            
-            # 使用第一个找到的index文件，如果没有则设为空字符串
-            index_path = os.path.join(model_dir_path, index_files[0]) if index_files else ""
-            
-            # 读取json信息文件（如果存在）
-            model_info = {}
-            if json_files:
-                json_path = os.path.join(model_dir_path, json_files[0])
-                try:
-                    with open(json_path, 'r', encoding='utf-8') as f:
-                        model_info = json.load(f)
-                except Exception as e:
-                    print(f"读取模型信息文件失败 {json_path}: {e}")
-            
-            # 构建模型数据
-            model_name = model_info.get("name", item)  # 如果json中没有name，使用目录名
-            
-            # 确定模型图片路径（优先级：json中的image > 目录下的图片文件）
-            model_image = model_info.get("image", "")
-            if model_image:
-                # 如果json中指定了图片路径
-                if not os.path.isabs(model_image):
-                    # 如果是相对路径，转换为相对于模型目录的路径
-                    model_image = os.path.join(model_dir_path, model_image)
-            elif image_files:
-                # 如果json中没有指定，但目录下有图片文件，使用第一个找到的图片
-                model_image = os.path.join(model_dir_path, image_files[0])
-            else:
-                # 没有图片
-                model_image = ""
-            
-            # 获取分类信息（从json中读取，默认为"天籁Lite"）
-            category = model_info.get("category", "天籁Lite")
-            
-            # 构建模型数据（兼容主页的数据结构）
-            model_data = {
-                "id": str(model_id),
-                "name": model_name,
-                "image": model_image,
-                "description": model_info.get("description", ""),
-                "category": category,
-                "version": model_info.get("version", "V1"),
-                "sample_rate": model_info.get("sample_rate", "48K"),
-                "pth_path": pth_path,
-                "index_path": index_path,
+            # 如果file_path不可用，尝试在服务端的models目录中查找
+            if not image_path and file_path:
+                # file_path是相对路径，需要拼接models目录
+                models_base_path = os.path.join(os.getcwd(), "models")
+                full_file_path = os.path.join(models_base_path, file_path)
+                file_dir = os.path.dirname(full_file_path)
+                
+                if os.path.exists(file_dir):
+                    file_name_without_ext = os.path.splitext(os.path.basename(file_path))[0]
+                    image_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"]
+                    for ext in image_extensions:
+                        potential_image = os.path.join(file_dir, file_name_without_ext + ext)
+                        if os.path.exists(potential_image):
+                            image_path = potential_image
+                            break
+                    
+                    # 如果没找到，尝试查找目录下的任何图片文件
+                    if not image_path:
+                        for f in os.listdir(file_dir):
+                            if f.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")):
+                                image_path = os.path.join(file_dir, f)
+                                break
+        
+        # 构建转换后的数据
+        converted_model = {
+            "id": str(api_model.get("id", "")),
+            "uid": api_model.get("uid", ""),  # 模型的UUID
+            "name": api_model.get("name", "未知模型"),
+            "image": image_path,
+            "description": api_model.get("description", ""),
+            "category": api_model.get("category", "全部") or "全部",  # 确保category不为None
+            "version": api_model.get("version", "V1"),
+            "sample_rate": "48K",  # API中没有sample_rate字段，使用默认值
+            "pth_path": api_model.get("file_path", ""),  # 使用file_path作为pth_path
+            "index_path": "",  # API中没有index_path信息，需要从file_path推断或通过其他方式获取
+            "file_name": api_model.get("file_name", ""),
+            "file_size": api_model.get("file_size", 0),
+            "download_count": api_model.get("download_count", 0),
+            "is_public": api_model.get("is_public", True),
+            "user_id": api_model.get("user_id"),
+            "created_at": api_model.get("created_at"),
+            "updated_at": api_model.get("updated_at"),
+            "model_id": api_model.get("id"),  # 保存原始ID用于下载等操作
             }
             
-            # 添加json中的其他信息（如果有）
-            for key in ["price", "category_name"]:
-                if key in model_info:
-                    model_data[key] = model_info[key]
-            
-            models_data.append(model_data)
-            model_id += 1
+        # 保留tags等其他字段
+        if "tags" in api_model:
+            converted_model["tags"] = api_model["tags"]
         
-        return models_data
+        return converted_model
+    
+    def _update_category_buttons(self):
+        """根据实际模型数据更新分类按钮"""
+        # 从模型数据中提取所有分类
+        categories = set()
+        for model in self.models_data:
+            category = model.get("category", "")
+            if category:
+                # 支持多个分类用分号分隔
+                for cat in category.split(";"):
+                    cat = cat.strip()
+                    if cat:
+                        categories.add(cat)
+        
+        # 如果没有任何分类，使用默认分类
+        if not categories:
+            categories = {"天籁Lite", "天籁Ultra"}
+        
+        # 排序分类列表
+        sorted_categories = sorted(categories)
+        
+        # 更新分类按钮
+        # 先清除旧的按钮（除了搜索框）
+        if hasattr(self, 'categories_layout'):
+            # 保存搜索框
+            search_widget = None
+            stretch_index = None
+            for i in range(self.categories_layout.count()):
+                item = self.categories_layout.itemAt(i)
+                if item:
+                    widget = item.widget()
+                    if widget == self.search_input:
+                        search_widget = widget
+                        stretch_index = i
+                    elif widget and widget in self.category_buttons.values():
+                        widget.deleteLater()
+            
+            # 清除所有项
+            while self.categories_layout.count():
+                item = self.categories_layout.takeAt(0)
+                if item and item.widget() and item.widget() != self.search_input:
+                    item.widget().deleteLater()
+            
+            self.category_buttons.clear()
+            
+            # 添加"全部"按钮
+            categories_list = ["全部"] + sorted_categories
+            
+            # 重新创建分类按钮
+            for category in categories_list:
+                btn = QPushButton(category)
+                btn.setCheckable(True)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda checked, cat=category: self.on_category_changed(cat))
+                
+                if category == "全部":
+                    btn.setChecked(True)
+                    btn.setStyleSheet("""
+                        QPushButton {
+                            background-color: #e74c3c;
+                            color: #ffffff;
+                            border: none;
+                            border-radius: 6px;
+                            padding: 8px 20px;
+                            font-size: 14px;
+                            font-weight: bold;
+                        }
+                    """)
+                else:
+                    btn.setStyleSheet("""
+                        QPushButton {
+                            background-color: #2d2d2d;
+                            color: #ffffff;
+                            border: none;
+                            border-radius: 6px;
+                            padding: 8px 20px;
+                            font-size: 14px;
+                        }
+                        QPushButton:hover {
+                            background-color: #3d3d3d;
+                        }
+                        QPushButton:checked {
+                            background-color: #8b5cf6;
+                        }
+                    """)
+                
+                self.category_buttons[category] = btn
+                self.categories_layout.addWidget(btn)
+            
+            # 添加拉伸和搜索框
+            self.categories_layout.addStretch()
+            if search_widget:
+                self.categories_layout.addWidget(search_widget)
+    
     
     def on_category_changed(self, category):
         """分类改变"""

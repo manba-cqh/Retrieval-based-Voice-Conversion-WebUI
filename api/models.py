@@ -23,8 +23,25 @@ class ModelsAPI(AsyncAPIClient):
         """获取完整的API URL"""
         if self.base_url:
             if endpoint.startswith("http"):
-                return endpoint.replace(API_MODELS.split('/api')[0], self.base_url)
-            return f"{self.base_url}{endpoint.split('/api')[1] if '/api' in endpoint else endpoint}"
+                # 如果endpoint是完整URL，替换基础URL部分
+                base_url_part = API_MODELS.split('/api')[0]
+                result = endpoint.replace(base_url_part, self.base_url)
+                # 确保末尾斜杠一致
+                if endpoint.endswith('/') and not result.endswith('/'):
+                    result += '/'
+                elif not endpoint.endswith('/') and result.endswith('/'):
+                    result = result.rstrip('/')
+                return result
+            # 如果是相对路径，拼接base_url
+            path = endpoint.split('/api')[1] if '/api' in endpoint else endpoint
+            # 确保路径以/开头
+            if not path.startswith('/'):
+                path = '/' + path
+            # 保持末尾斜杠
+            if endpoint.endswith('/'):
+                path = path.rstrip('/') + '/'
+            return f"{self.base_url}{path}"
+        # 直接返回，保持末尾斜杠
         return endpoint
     
     def _get_headers(self) -> Dict[str, str]:
@@ -90,6 +107,70 @@ class ModelsAPI(AsyncAPIClient):
             result["model"] = result.get("data")
         
         return result
+    
+    async def download_model_package(self, uuid: str, save_path: str, progress_callback=None) -> Dict[str, Any]:
+        """
+        下载模型压缩包（.7z文件）（异步）
+        
+        Args:
+            uuid: 模型UUID
+            save_path: 保存路径
+            progress_callback: 进度回调函数，接收 (downloaded, total) 参数
+        
+        Returns:
+            下载结果字典
+        """
+        import httpx
+        import os
+        
+        # 构建URL，确保路径正确
+        base_url = self._get_url(API_MODELS)
+        if base_url.endswith('/'):
+            base_url = base_url.rstrip('/')
+        url = f"{base_url}/by-uuid/{uuid}/package"
+        headers = self._get_headers()
+        
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                async with client.stream("GET", url, headers=headers) as response:
+                    response.raise_for_status()
+                    
+                    # 获取文件大小
+                    total_size = int(response.headers.get("content-length", 0))
+                    
+                    # 确保保存目录存在
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                    
+                    downloaded = 0
+                    with open(save_path, "wb") as f:
+                        async for chunk in response.aiter_bytes():
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if progress_callback and total_size > 0:
+                                progress_callback(downloaded, total_size)
+                    
+                    return {
+                        "success": True,
+                        "message": "下载完成",
+                        "file_path": save_path,
+                        "file_size": downloaded
+                    }
+        except httpx.HTTPStatusError as e:
+            error_msg = "下载失败"
+            try:
+                error_data = e.response.json()
+                error_msg = error_data.get("detail", error_msg)
+            except:
+                error_msg = f"下载失败: {e.response.status_code}"
+            return {
+                "success": False,
+                "message": error_msg
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"下载失败: {str(e)}"
+            }
     
     async def download_model(self, model_id: int, save_path: str) -> Dict[str, Any]:
         """

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
             # 转换为绝对路径
             if not os.path.isabs(db_path):
                 # 从项目根目录开始
-                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                project_root = os.path.dirname(os.path.abspath(__file__))
                 db_path = os.path.join(project_root, db_path)
             
             db_dir = os.path.dirname(db_path)
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     debug: bool = True
     
     # 模型文件配置
-    models_base_path: str = "./models"  # 模型文件存储路径
+    models_base_path: str = "./models"  # 模型文件存储路径（models/XXX/）
     
     class Config:
         env_file = ".env"
