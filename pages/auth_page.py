@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from api.auth import auth_api
 from api.async_utils import AsyncTaskManager
+from api.storage import token_storage
 
 
 class PasswordWidget(QLineEdit):
@@ -75,6 +76,8 @@ class AuthPage(QWidget):
         super().__init__()
         self.task_manager = AsyncTaskManager()  # 异步任务管理器
         self.init_ui()
+        # 加载保存的凭据
+        self.load_saved_credentials()
     
     def init_ui(self):
         """初始化UI"""
@@ -149,6 +152,8 @@ class AuthPage(QWidget):
         # 保存密码复选框
         self.remember_checkbox = QCheckBox("保存密码")
         self.remember_checkbox.setProperty("auth_checkbox", True)
+        # 连接信号：当用户取消勾选时，清除保存的密码
+        self.remember_checkbox.stateChanged.connect(self.on_remember_checkbox_changed)
         options_layout.addWidget(self.remember_checkbox)
         
         options_layout.addStretch()
@@ -354,6 +359,13 @@ class AuthPage(QWidget):
         self.login_btn.setText("登录")
         
         if result.get("success"):
+            # 如果勾选了"保存密码"，保存用户名和密码
+            if self.remember_checkbox.isChecked():
+                token_storage.save_credentials(username, password)
+            else:
+                # 如果未勾选，清除之前保存的凭据
+                token_storage.clear_credentials()
+            
             # 登录成功，发送信号
             self.login_success.emit(username, password)
         else:
@@ -457,6 +469,26 @@ class AuthPage(QWidget):
         self.register_btn.setText("注册")
         
         QMessageBox.warning(self, "注册错误", f"注册过程中发生错误: {error}")
+    
+    def load_saved_credentials(self):
+        """加载保存的用户名和密码"""
+        credentials = token_storage.load_credentials()
+        if credentials:
+            username, password = credentials
+            # 填充用户名和密码
+            self.login_username_input.setText(username)
+            self.login_password_input.setText(password)
+            # 勾选"保存密码"复选框
+            self.remember_checkbox.setChecked(True)
+    
+    def on_remember_checkbox_changed(self, state):
+        """记住密码复选框状态改变"""
+        # 如果用户取消勾选，清除保存的密码
+        # state: 0=未选中, 2=选中
+        if state == 0:  # Qt.CheckState.Unchecked
+            token_storage.clear_credentials()
+            # 清除密码输入框（保留用户名）
+            self.login_password_input.setText("")
     
     def on_agreement_clicked(self):
         """用户协议链接点击"""

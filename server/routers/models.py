@@ -90,7 +90,6 @@ def download_model_package_by_uuid(
 ):
     """通过UUID下载模型压缩包（.7z文件）"""
     # 根据uuid查找模型
-    print(f"[DEBUG] 查找UUID: {uuid}")
     model = db.query(Model).filter(
         Model.uid == uuid,
         Model.is_active == True
@@ -98,11 +97,6 @@ def download_model_package_by_uuid(
     
     if not model:
         print(f"[DEBUG] 未找到UUID为 {uuid} 的模型")
-        # 检查是否有其他模型（用于调试）
-        all_models = db.query(Model).filter(Model.is_active == True).all()
-        print(f"[DEBUG] 数据库中活跃模型数量: {len(all_models)}")
-        if all_models:
-            print(f"[DEBUG] 示例模型UUID: {all_models[0].uid if hasattr(all_models[0], 'uid') else 'N/A'}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"模型不存在 (UUID: {uuid})"
@@ -115,42 +109,12 @@ def download_model_package_by_uuid(
             detail="无权下载此模型"
         )
     
-    # 根据file_path找到模型目录
-    # file_path格式如: buding/buding.pth
-    model_dir_name = os.path.dirname(model.file_path)
-    if not model_dir_name:
-        # 如果file_path没有目录，尝试从文件名推断
-        model_dir_name = os.path.splitext(model.file_name)[0]
-    
-    # 查找压缩包文件（.7z）
-    # 压缩包应该在模型目录的父目录下，或者与模型目录同级
-    models_base_path = Path(settings.models_base_path)
-    if not models_base_path.is_absolute():
-        # 如果是相对路径，转换为绝对路径
-        project_root = Path(__file__).parent.parent.parent
-        models_base_path = project_root / models_base_path
-    
-    # 尝试在模型目录下查找.7z文件
-    model_dir = models_base_path / model_dir_name
-    package_file = None
-    
-    # 查找与模型目录同名的.7z文件
-    package_candidates = [
-        model_dir / f"{model_dir_name}.7z",  # 在模型目录内
-        models_base_path / f"{model_dir_name}.7z",  # 在models目录下
-        model_dir.parent / f"{model_dir_name}.7z",  # 在模型目录的父目录
-    ]
-
-    for candidate in package_candidates:
-        if candidate.exists() and candidate.is_file():
-            package_file = candidate
-            break
-    
-    # 如果没找到同名文件，查找模型目录下的所有.7z文件
-    if not package_file and model_dir.exists():
-        sevenz_files = list(model_dir.glob("*.7z"))
-        if sevenz_files:
-            package_file = sevenz_files[0]  # 使用第一个找到的.7z文件
+    package_file_str = ''
+    if '/' in model.file_path:
+        package_file_str = 'models/' + model.file_path.split('/')[0] + '.7z'
+    elif '\\' in model.file_path:
+        package_file_str = 'models/' + model.file_path.split('\\')[0] + '.7z'
+    package_file = Path(package_file_str)
     
     if not package_file or not package_file.exists():
         raise HTTPException(

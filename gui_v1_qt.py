@@ -317,8 +317,9 @@ class MainWindow(QMainWindow):
             self.current_username = username
             # 切换到主应用界面
             self.main_stack.setCurrentWidget(self.app_container)
-            # 重新加载主页模型数据
+            # 登录成功后，加载主页模型数据
             if "home" in self.pages:
+                print("登录成功，开始加载模型列表...")
                 self.pages["home"].load_models()
         else:
             # 如果API调用失败，这里不应该被调用
@@ -328,21 +329,12 @@ class MainWindow(QMainWindow):
     def on_register_success(self, username, password, phone, activation_code):
         """注册成功"""
         from PyQt6.QtWidgets import QMessageBox
-        from api.auth import auth_api
         
-        # 检查注册是否成功（auth_api.register 已经处理了）
-        if auth_api.is_logged_in():
-            # 如果注册后自动登录了，直接进入主界面
-            print(f"注册并登录成功: {username}")
-            self.is_logged_in = True
-            self.current_username = username
-            self.main_stack.setCurrentWidget(self.app_container)
-        else:
-            # 注册成功但未自动登录，提示用户登录
-            print(f"注册成功: {username}, {phone}")
-            QMessageBox.information(self, "提示", "注册成功！请登录")
-            # 切换到登录页面
-            self.show_login()
+        # 注册成功后，总是返回到登录页面
+        print(f"注册成功: {username}, {phone}")
+        QMessageBox.information(self, "提示", "注册成功！请登录")
+        # 切换到登录页面
+        self.show_login()
     
     def on_logout_clicked(self):
         """退出登录按钮点击事件"""

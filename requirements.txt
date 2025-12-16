@@ -50,3 +50,4 @@ av
 FreeSimpleGUI
 sounddevice
 PyQt6
+py7zr

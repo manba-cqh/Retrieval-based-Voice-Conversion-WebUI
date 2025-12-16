@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QScrollArea, QGridLayout, QFrame, QStackedWidget,
     QProgressBar, QMessageBox, QSizePolicy, QSlider
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QUrl
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QUrl, QMetaObject, Q_ARG
 from PyQt6.QtGui import QFont, QPixmap, QIcon
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
@@ -126,11 +126,13 @@ class ModelCard(QFrame):
 class ModelDetailPage(QWidget):
     """模型详情页面"""
     back_clicked = pyqtSignal()  # 返回信号
+    progress_updated = pyqtSignal(int, int, str)  # 进度更新信号 (downloaded, total, status_text)
     
-    def __init__(self, model_data, parent=None, is_purchased=False):
+    def __init__(self, model_data, parent=None, is_purchased=False, home_page=None):
         super().__init__(parent)
         self.model_data = model_data
         self.is_purchased = is_purchased  # 是否已购买/已下载
+        self.home_page = home_page  # 主页引用，用于更新本地模型uid列表
         self.trial_timer = QTimer()
         self.trial_timer.timeout.connect(self.update_trial_time)
         self.trial_seconds = 0
@@ -146,6 +148,14 @@ class ModelDetailPage(QWidget):
         self.progress_slider = None
         self.is_slider_dragging = False  # 标记是否正在拖拽滑块
         
+        # 下载线程相关
+        self.download_thread = None
+        self.download_worker = None
+        
+        # 保存下载区块和使用区块的引用，用于动态切换
+        self.download_section = None
+        self.use_section = None
+        
         # 查找音频文件
         self.find_audio_file()
         
@@ -153,7 +163,31 @@ class ModelDetailPage(QWidget):
     
     def on_back_clicked(self):
         """返回按钮点击"""
+        # 清理下载线程（如果存在）
+        self._cleanup_download_thread()
         self.back_clicked.emit()
+    
+    def _cleanup_download_thread(self):
+        """清理下载线程资源"""
+        if self.download_thread and self.download_thread.isRunning():
+            try:
+                if self.download_worker:
+                    self.download_worker.finished.disconnect()
+                    self.download_worker.error.disconnect()
+                self.download_thread.quit()
+                self.download_thread.wait(3000)  # 等待最多3秒
+                if self.download_thread.isRunning():
+                    self.download_thread.terminate()
+                    self.download_thread.wait()
+            except Exception as e:
+                print(f"清理下载线程时出错: {e}")
+            finally:
+                if self.download_thread:
+                    self.download_thread.deleteLater()
+                if self.download_worker:
+                    self.download_worker.deleteLater()
+                self.download_thread = None
+                self.download_worker = None
     
     def setup_ui(self):
         """设置详情页面UI"""
@@ -322,16 +356,16 @@ class ModelDetailPage(QWidget):
         # 如果已购买/已下载，不显示试用区块，显示使用按钮
         if self.is_purchased:
             # 使用按钮（已下载，直接使用）
-            use_section = self.create_use_section()
-            layout.addWidget(use_section, 5)
+            self.use_section = self.create_use_section()
+            layout.addWidget(self.use_section, 5)
         else:
             # 试用
             trial_section = self.create_trial_section()
             layout.addWidget(trial_section, 5)
             
             # 下载
-            download_section = self.create_download_section()
-            layout.addWidget(download_section, 5)
+            self.download_section = self.create_download_section()
+            layout.addWidget(self.download_section, 5)
         
         layout.addStretch()
         return panel
@@ -845,6 +879,9 @@ class ModelDetailPage(QWidget):
             QMessageBox.warning(self, "错误", "模型UUID不存在")
             return
         
+        # 如果已有下载线程在运行，先停止并清理
+        self._cleanup_download_thread()
+        
         # 禁用下载按钮
         self.download_btn.setEnabled(False)
         self.download_btn.setText("下载中...")
@@ -855,28 +892,29 @@ class ModelDetailPage(QWidget):
         self.download_status_label.setVisible(True)
         self.download_status_label.setText("准备下载...")
         
+        # 连接进度更新信号
+        self.progress_updated.connect(self._update_download_progress)
+        
         # 创建异步下载任务
         async def download_and_extract():
             try:
-                # 创建临时文件保存压缩包
-                temp_dir = tempfile.gettempdir()
-                model_name = self.model_data.get("name", "model")
-                # 清理文件名中的非法字符
-                safe_name = "".join(c for c in model_name if c.isalnum() or c in (' ', '-', '_')).strip()
-                package_path = os.path.join(temp_dir, f"{safe_name}.7z")
+                # 客户端models目录
+                client_models_dir = os.path.join(os.getcwd(), "models")
+                os.makedirs(client_models_dir, exist_ok=True)
                 
-                # 下载进度回调
+                # 下载进度回调（使用信号安全更新UI）
                 def progress_callback(downloaded, total):
                     if total > 0:
                         percent = int((downloaded / total) * 100)
-                        self.download_progress.setValue(percent)
-                        self.download_status_label.setText(f"下载中: {downloaded // 1024 // 1024}MB / {total // 1024 // 1024}MB")
+                        status_text = f"下载中: {downloaded // 1024 // 1024}MB / {total // 1024 // 1024}MB"
+                        # 使用信号在主线程中更新UI
+                        self.progress_updated.emit(percent, total, status_text)
                 
-                # 下载压缩包
-                self.download_status_label.setText("正在下载压缩包...")
+                # 下载压缩包（使用服务端原始文件名）
+                self.progress_updated.emit(0, 0, "正在下载压缩包...")
                 result = await models_api.download_model_package(
                     model_uuid,
-                    package_path,
+                    client_models_dir,  # 只传目录，不传文件名
                     progress_callback=progress_callback
                 )
                 
@@ -886,13 +924,11 @@ class ModelDetailPage(QWidget):
                         "message": result.get("message", "下载失败")
                     }
                 
-                # 解压压缩包
-                self.download_status_label.setText("正在解压...")
-                self.download_progress.setValue(50)
+                # 获取服务端返回的文件名和完整路径
+                package_path = result.get("file_path")
                 
-                # 客户端models目录
-                client_models_dir = os.path.join(os.getcwd(), "models")
-                os.makedirs(client_models_dir, exist_ok=True)
+                # 解压压缩包
+                self.progress_updated.emit(50, 100, "正在解压...")
                 
                 # 解压到models目录
                 try:
@@ -918,14 +954,15 @@ class ModelDetailPage(QWidget):
                         "message": f"解压失败: {str(e)}"
                     }
                 
-                # 删除临时压缩包
+                # 解压完成后删除7z压缩包
                 try:
-                    os.remove(package_path)
-                except:
-                    pass
+                    if os.path.exists(package_path):
+                        os.remove(package_path)
+                        print(f"已删除压缩包: {package_path}")
+                except Exception as e:
+                    print(f"删除压缩包失败: {e}")
                 
-                self.download_progress.setValue(100)
-                self.download_status_label.setText("下载完成！")
+                self.progress_updated.emit(100, 100, "下载完成！")
                 
                 return {
                     "success": True,
@@ -947,25 +984,83 @@ class ModelDetailPage(QWidget):
     
     def on_download_finished(self, result):
         """下载完成"""
+        # 清理线程资源
+        self._cleanup_download_thread()
+        
         # 恢复下载按钮
         self.download_btn.setEnabled(True)
         self.download_btn.setText("开始下载")
         
         if result.get("success"):
-            QMessageBox.information(self, "成功", "模型下载并解压完成！\n已保存到: models目录")
+            QMessageBox.information(self, "成功", "模型下载并解压完成！")
             self.download_status_label.setText("下载完成！")
-            # 3秒后隐藏进度条
-            QTimer.singleShot(3000, lambda: (
-                self.download_progress.setVisible(False),
-                self.download_status_label.setVisible(False)
-            ))
+            
+            # 重新加载本地模型uid列表
+            if self.home_page:
+                self.home_page._load_local_model_uids()
+            
+            # 检查当前模型是否已下载（通过uuid对比）
+            model_uid = self.model_data.get("uid")
+            if model_uid and self.home_page and model_uid in self.home_page.local_model_uids:
+                # 更新页面状态：从下载状态切换到已下载状态
+                self._update_to_downloaded_state()
+            else:
+                # 3秒后隐藏进度条（如果未检测到已下载）
+                QTimer.singleShot(3000, lambda: (
+                    self.download_progress.setVisible(False),
+                    self.download_status_label.setVisible(False)
+                ))
         else:
             QMessageBox.warning(self, "错误", result.get("message", "下载失败"))
             self.download_progress.setVisible(False)
             self.download_status_label.setVisible(False)
     
+    def _update_to_downloaded_state(self):
+        """更新页面状态为已下载状态"""
+        if self.is_purchased:
+            return  # 已经是已下载状态，不需要更新
+        
+        # 更新标志
+        self.is_purchased = True
+        
+        # 隐藏进度条
+        if self.download_progress:
+            self.download_progress.setVisible(False)
+        if self.download_status_label:
+            self.download_status_label.setVisible(False)
+        
+        # 如果下载区块存在，替换为使用区块
+        if self.download_section:
+            # 获取下载区块的父widget和布局
+            parent_widget = self.download_section.parent()
+            if parent_widget:
+                parent_layout = parent_widget.layout()
+                if parent_layout:
+                    # 找到下载区块在布局中的位置
+                    index = parent_layout.indexOf(self.download_section)
+                    if index >= 0:
+                        # 移除下载区块
+                        parent_layout.removeWidget(self.download_section)
+                        self.download_section.setParent(None)
+                        self.download_section.deleteLater()
+                        self.download_section = None
+                        
+                        # 创建使用区块
+                        self.use_section = self.create_use_section()
+                        parent_layout.insertWidget(index, self.use_section)
+    
+    def _update_download_progress(self, percent, total, status_text):
+        """更新下载进度（在主线程中调用）"""
+        if percent >= 0:
+            self.download_progress.setValue(percent)
+        if status_text:
+            self.download_status_label.setText(status_text)
+    
     def on_download_error(self, error_msg):
         """下载出错"""
+        # 清理线程资源
+        self._cleanup_download_thread()
+        
         self.download_btn.setEnabled(True)
         self.download_btn.setText("开始下载")
         self.download_progress.setVisible(False)
@@ -982,8 +1077,10 @@ class HomePage(BasePage):
         self.filtered_models = []  # 过滤后的模型
         self.current_category = "全部"  # 当前选中的分类
         self.current_model = None  # 当前查看的模型
+        self.local_model_uids = set()  # 本地模型的uid集合（用于快速查找）
         self.setup_content()
-        self.load_models()  # 加载模型数据
+        # 不在初始化时加载模型，等待登录成功后再加载
+        # self.load_models()  # 加载模型数据
     
     def setup_content(self):
         """设置主页内容"""
@@ -1161,6 +1258,9 @@ class HomePage(BasePage):
     
     def load_models(self):
         """从服务端API加载模型数据"""
+        # 先加载本地模型uid列表
+        self._load_local_model_uids()
+        
         # 检查登录状态
         if not auth_api.is_logged_in():
             print("未登录，无法加载模型数据")
@@ -1262,6 +1362,38 @@ class HomePage(BasePage):
             self.load_thread.wait()
             self.load_thread = None
             self.load_worker = None
+    
+    def _load_local_model_uids(self):
+        """加载本地模型的uid列表"""
+        self.local_model_uids.clear()
+        models_dir = os.path.join(os.getcwd(), "models")
+        
+        if not os.path.exists(models_dir):
+            return
+        
+        # 扫描models目录下的所有子目录
+        for item in os.listdir(models_dir):
+            model_dir_path = os.path.join(models_dir, item)
+            
+            # 只处理目录
+            if not os.path.isdir(model_dir_path):
+                continue
+            
+            # 查找json信息文件（通常是info.json）
+            json_files = [f for f in os.listdir(model_dir_path) if f.endswith(".json")]
+            
+            if json_files:
+                json_path = os.path.join(model_dir_path, json_files[0])
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        model_info = json.load(f)
+                    
+                    # 读取uid（支持uuid或uid字段）
+                    model_uid = model_info.get("uuid") or model_info.get("uid")
+                    if model_uid:
+                        self.local_model_uids.add(model_uid)
+                except Exception as e:
+                    print(f"读取本地模型信息文件失败 {json_path}: {e}")
     
     def on_models_load_error(self, error_msg):
         """模型数据加载出错"""
@@ -1607,6 +1739,12 @@ class HomePage(BasePage):
             QMessageBox.warning(self, "错误", "未找到模型信息")
             return
         
+        # 检查本地是否有相同uid的模型
+        model_uid = model_data.get("uid")
+        is_downloaded = False
+        if model_uid and model_uid in self.local_model_uids:
+            is_downloaded = True
+        
         # 创建或更新详情页面
         if self.detail_page:
             self.detail_page.deleteLater()
@@ -1621,7 +1759,8 @@ class HomePage(BasePage):
             "description": detail_data.get("description", "茶韵悠悠可音袅袅少御音介于少女与御姐之间既有少女清脆又具御姐沉稳圆润柔和年龄感适中清嗓咳嗽呢喃细语悄悄话 笑声 自带情绪感")
         })
         
-        self.detail_page = ModelDetailPage(detail_data)
+        # 如果本地已下载，显示已下载样式
+        self.detail_page = ModelDetailPage(detail_data, is_purchased=is_downloaded, home_page=self)
         self.detail_page.back_clicked.connect(self.show_list_page)
         self.detail_page.setParent(self.stacked_widget)
         

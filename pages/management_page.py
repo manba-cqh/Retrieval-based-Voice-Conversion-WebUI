@@ -284,6 +284,9 @@ class ManagementPage(BasePage):
             # 判断是否为收藏（如果category中包含"收藏"）
             is_favorite = "收藏" in categories
             
+            # 读取uid（支持uuid或uid字段）
+            model_uid = model_info.get("uuid") or model_info.get("uid")
+            
             # 构建模型数据（兼容管理页面的数据结构）
             model_data = {
                 "id": f"m{model_id}",
@@ -297,6 +300,7 @@ class ManagementPage(BasePage):
                 "sample_rate": model_info.get("sample_rate", "48K"),
                 "pth_path": pth_path,
                 "index_path": index_path,
+                "uid": model_uid,  # 添加uid字段
             }
             
             # 添加json中的其他信息（如果有）

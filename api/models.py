@@ -108,20 +108,21 @@ class ModelsAPI(AsyncAPIClient):
         
         return result
     
-    async def download_model_package(self, uuid: str, save_path: str, progress_callback=None) -> Dict[str, Any]:
+    async def download_model_package(self, uuid: str, save_dir: str, progress_callback=None) -> Dict[str, Any]:
         """
         下载模型压缩包（.7z文件）（异步）
         
         Args:
             uuid: 模型UUID
-            save_path: 保存路径
+            save_dir: 保存目录（不包含文件名）
             progress_callback: 进度回调函数，接收 (downloaded, total) 参数
         
         Returns:
-            下载结果字典
+            下载结果字典，包含 file_path（完整路径）和 file_name（文件名）
         """
         import httpx
         import os
+        import re
         
         # 构建URL，确保路径正确
         base_url = self._get_url(API_MODELS)
@@ -138,8 +139,29 @@ class ModelsAPI(AsyncAPIClient):
                     # 获取文件大小
                     total_size = int(response.headers.get("content-length", 0))
                     
+                    # 从响应头中提取文件名
+                    filename = None
+                    content_disposition = response.headers.get("content-disposition", "")
+                    if content_disposition:
+                        # 解析 Content-Disposition: attachment; filename="xxx.7z"
+                        match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
+                        if match:
+                            filename = match.group(1).strip('\'"')
+                    
+                    # 如果响应头中没有文件名，尝试从URL路径中提取
+                    if not filename:
+                        # 从响应URL中提取文件名
+                        response_url = str(response.url)
+                        filename = os.path.basename(response_url)
+                        # 如果还是没有，使用默认名称
+                        if not filename or filename == 'package':
+                            filename = f"{uuid}.7z"
+                    
                     # 确保保存目录存在
-                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                    os.makedirs(save_dir, exist_ok=True)
+                    
+                    # 构建完整保存路径
+                    save_path = os.path.join(save_dir, filename)
                     
                     downloaded = 0
                     with open(save_path, "wb") as f:
@@ -153,6 +175,7 @@ class ModelsAPI(AsyncAPIClient):
                         "success": True,
                         "message": "下载完成",
                         "file_path": save_path,
+                        "file_name": filename,
                         "file_size": downloaded
                     }
         except httpx.HTTPStatusError as e:
