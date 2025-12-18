@@ -100,11 +100,19 @@ def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+
+    # 开发环境可以使用 reload，方便调试；
+    # 但如果被 PyInstaller 等打包成 exe（sys.frozen 为 True），必须关闭 reload，
+    # 否则 reloader 会在冻结环境里不断拉起子进程，出现多次 “Started reloader process ...”
+    reload_flag = settings.debug
+    if getattr(sys, "frozen", False):
+        reload_flag = False
+
     # 直接运行应用实例，而不是通过字符串引用
     uvicorn.run(
         app,
         host=settings.host,
         port=settings.port,
-        reload=settings.debug
+        reload=reload_flag
     )
 
