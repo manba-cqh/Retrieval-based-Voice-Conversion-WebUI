@@ -21,11 +21,18 @@ class ModelSyncService:
         Args:
             models_base_paths: 模型文件基础路径列表，如果为None则使用默认路径
         """
-        # 获取项目根目录
-        project_root = Path(__file__).parent.parent
+        import sys
+        
+        # 获取基目录（打包后使用exe目录，开发环境使用server目录）
+        if getattr(sys, 'frozen', False):
+            # 打包后的exe环境，使用exe所在目录
+            base_dir = Path(sys.executable).parent
+        else:
+            # 开发环境，使用server目录
+            base_dir = Path(__file__).parent.parent
         
         if models_base_paths is None:
-            # 默认只扫描项目根目录下的 models 目录
+            # 默认只扫描基目录下的 models 目录
             default_paths = ["./models"]
             models_base_paths = default_paths
         
@@ -37,7 +44,7 @@ class ModelSyncService:
                 # 如果路径以 ./ 开头，需要去掉
                 if str(path).startswith("./"):
                     path = Path(str(path)[2:])
-                path = project_root / path
+                path = base_dir / path
             self.models_base_paths.append(path)
         
         # 保持向后兼容：第一个路径作为主路径
