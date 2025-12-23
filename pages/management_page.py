@@ -459,7 +459,16 @@ class ManagementPage(BasePage):
         })
         
         # 管理页面的模型都是已购买/已下载的
-        self.detail_page = ModelDetailPage(detail_data, is_purchased=True)
+        # 尝试获取主窗口引用
+        main_window = None
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'pages'):
+                main_window = parent
+                break
+            parent = parent.parent()
+        
+        self.detail_page = ModelDetailPage(detail_data, is_purchased=True, main_window=main_window)
         self.detail_page.back_clicked.connect(self.show_list_page)
         self.detail_page.setParent(self.stacked_widget)
         

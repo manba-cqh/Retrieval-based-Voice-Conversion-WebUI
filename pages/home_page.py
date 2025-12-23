@@ -128,11 +128,12 @@ class ModelDetailPage(QWidget):
     back_clicked = pyqtSignal()  # 返回信号
     progress_updated = pyqtSignal(int, int, str)  # 进度更新信号 (downloaded, total, status_text)
     
-    def __init__(self, model_data, parent=None, is_purchased=False, home_page=None):
+    def __init__(self, model_data, parent=None, is_purchased=False, home_page=None, main_window=None):
         super().__init__(parent)
         self.model_data = model_data
         self.is_purchased = is_purchased  # 是否已购买/已下载
         self.home_page = home_page  # 主页引用，用于更新本地模型uid列表
+        self.main_window = main_window  # 主窗口引用，用于刷新管理页面
         self.trial_timer = QTimer()
         self.trial_timer.timeout.connect(self.update_trial_time)
         self.trial_seconds = 0
@@ -999,6 +1000,9 @@ class ModelDetailPage(QWidget):
             if self.home_page:
                 self.home_page._load_local_model_uids()
             
+            # 刷新管理页面（如果主窗口可用）
+            self._refresh_management_page()
+            
             # 检查当前模型是否已下载（通过uuid对比）
             model_uid = self.model_data.get("uid")
             if model_uid and self.home_page and model_uid in self.home_page.local_model_uids:
@@ -1048,6 +1052,28 @@ class ModelDetailPage(QWidget):
                         # 创建使用区块
                         self.use_section = self.create_use_section()
                         parent_layout.insertWidget(index, self.use_section)
+    
+    def _refresh_management_page(self):
+        """刷新管理页面"""
+        try:
+            # 如果直接有主窗口引用，使用它
+            if self.main_window and hasattr(self.main_window, 'pages'):
+                management_page = self.main_window.pages.get("management")
+                if management_page and hasattr(management_page, 'load_models'):
+                    management_page.load_models()
+                    return
+            
+            # 否则，尝试向上查找主窗口
+            parent = self.parent()
+            while parent:
+                if hasattr(parent, 'pages'):
+                    management_page = parent.pages.get("management")
+                    if management_page and hasattr(management_page, 'load_models'):
+                        management_page.load_models()
+                        return
+                parent = parent.parent()
+        except Exception as e:
+            print(f"刷新管理页面失败: {e}")
     
     def _update_download_progress(self, percent, total, status_text):
         """更新下载进度（在主线程中调用）"""
@@ -1186,7 +1212,7 @@ class HomePage(BasePage):
         
         self.category_buttons = {}
         # 默认分类，加载数据后会更新
-        categories = ["全部", "天籁Lite", "天籁Ultra"]
+        categories = ["全部", "免费音色", "官方音色"]
         
         for category in categories:
             btn = QPushButton(category)
@@ -1515,6 +1541,7 @@ class HomePage(BasePage):
             "description": api_model.get("description", ""),
             "category": api_model.get("category", "全部") or "全部",  # 确保category不为None
             "version": api_model.get("version", "V1"),
+            "price": api_model.get("price", 0.0),  # 价格
             "sample_rate": "48K",  # API中没有sample_rate字段，使用默认值
             "pth_path": api_model.get("file_path", ""),  # 使用file_path作为pth_path
             "index_path": "",  # API中没有index_path信息，需要从file_path推断或通过其他方式获取
@@ -1549,7 +1576,7 @@ class HomePage(BasePage):
         
         # 如果没有任何分类，使用默认分类
         if not categories:
-            categories = {"天籁Lite", "天籁Ultra"}
+            categories = {"免费音色", "官方音色"}
         
         # 排序分类列表
         sorted_categories = sorted(categories)
@@ -1751,16 +1778,45 @@ class HomePage(BasePage):
         
         # 添加更多详情数据
         detail_data = model_data.copy()
+        
+        # 根据category字段判断音色类型
+        category = detail_data.get("category", "")
+        category_name = "免费音色"  # 默认值
+        if category:
+            # category可能包含多个分类，用分号分隔
+            categories = [cat.strip() for cat in category.split(";")]
+            if "官方音色" in categories:
+                category_name = "官方音色"
+            elif "免费音色" in categories:
+                category_name = "免费音色"
+        
+        # 从模型数据中获取价格，如果没有则默认为0
+        price = detail_data.get("price", 0.0)
+        if not isinstance(price, (int, float)):
+            try:
+                price = float(price)
+            except (ValueError, TypeError):
+                price = 0.0
+        
         detail_data.update({
-            "price": 0,
+            "price": price,
             "version": "V1",
             "sample_rate": "48K",
-            "category_name": "免费音色",
+            "category_name": category_name,
             "description": detail_data.get("description", "茶韵悠悠可音袅袅少御音介于少女与御姐之间既有少女清脆又具御姐沉稳圆润柔和年龄感适中清嗓咳嗽呢喃细语悄悄话 笑声 自带情绪感")
         })
         
         # 如果本地已下载，显示已下载样式
-        self.detail_page = ModelDetailPage(detail_data, is_purchased=is_downloaded, home_page=self)
+        # 尝试获取主窗口引用
+        main_window = None
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'pages'):
+                main_window = parent
+                break
+            parent = parent.parent()
+        
+        self.detail_page = ModelDetailPage(detail_data, is_purchased=is_downloaded, home_page=self, main_window=main_window)
         self.detail_page.back_clicked.connect(self.show_list_page)
         self.detail_page.setParent(self.stacked_widget)
         

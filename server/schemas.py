@@ -49,6 +49,7 @@ class ModelBase(BaseModel):
     version: str = "1.0.0"
     category: Optional[str] = None
     tags: Optional[str] = None
+    price: float = 0.0  # 价格
 
 
 class ModelCreate(ModelBase):
@@ -66,6 +67,7 @@ class ModelResponse(ModelBase):
     file_name: str
     file_path: str  # 服务器上的文件路径（相对路径）
     file_size: int
+    price: float  # 价格
     download_count: int
     is_public: bool
     is_active: bool

@@ -151,6 +151,18 @@ class ModelSyncService:
         elif isinstance(is_public, int):
             is_public = bool(is_public)
         
+        # 从info.json读取price字段，默认为0.0
+        price = model_info.get("price", 0.0)
+        # 支持多种格式：数字、字符串数字
+        if isinstance(price, str):
+            try:
+                price = float(price)
+            except (ValueError, TypeError):
+                price = 0.0
+        elif not isinstance(price, (int, float)):
+            price = 0.0
+        price = float(price)  # 确保是float类型
+        
         return {
             "uid": uid,
             "name": model_info.get("name", model_dir.name),
@@ -158,6 +170,7 @@ class ModelSyncService:
             "version": model_info.get("version", "1.0.0"),
             "category": model_info.get("category", ""),
             "tags": model_info.get("tags", ""),
+            "price": price,
             "sample_rate": model_info.get("sample_rate", "48K"),
             "is_public": is_public,
             "file_path": str(relative_path),
@@ -264,6 +277,7 @@ class ModelSyncService:
                             existing_model.category != model_data.get("category") or
                             existing_model.tags != model_data.get("tags") or
                             existing_model.version != model_data.get("version", "1.0.0") or
+                            existing_model.price != model_data.get("price", 0.0) or
                             existing_model.is_public != model_data.get("is_public", True)):
                             needs_update = True
                             update_reasons.append("模型信息变化")
@@ -276,6 +290,7 @@ class ModelSyncService:
                             existing_model.version = model_data.get("version", "1.0.0")
                             existing_model.category = model_data.get("category")
                             existing_model.tags = model_data.get("tags")
+                            existing_model.price = model_data.get("price", 0.0)
                             existing_model.is_public = model_data.get("is_public", True)
                             existing_model.file_name = model_data["file_name"]
                             existing_model.file_size = model_data["file_size"]
@@ -297,6 +312,7 @@ class ModelSyncService:
                             version=model_data.get("version", "1.0.0"),
                             category=model_data.get("category"),
                             tags=model_data.get("tags"),
+                            price=model_data.get("price", 0.0),  # 从info.json读取，默认0.0
                             file_path=model_data["file_path"],
                             file_name=model_data["file_name"],
                             file_size=model_data["file_size"],

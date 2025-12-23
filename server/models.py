@@ -37,6 +37,7 @@ class Model(Base):
     version = Column(String(20), default="1.0.0")
     category = Column(String(50), nullable=True)  # 模型分类
     tags = Column(String(200), nullable=True)  # 标签，逗号分隔
+    price = Column(Float, default=0.0)  # 价格
     download_count = Column(Integer, default=0)  # 下载次数
     is_public = Column(Boolean, default=True)  # 是否公开
     is_active = Column(Boolean, default=True)  # 是否可用
