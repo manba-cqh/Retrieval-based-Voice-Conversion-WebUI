@@ -144,18 +144,18 @@ class MainWindow(QMainWindow):
         logo_font.setPointSize(18)
         logo_font.setBold(True)
         logo_label.setFont(logo_font)
-        logo_label.setPixmap(QPixmap("res/logo.jpg").scaled(128, 37))
+        logo_label.setPixmap(QPixmap("res/logo.png").scaled(128, 37))
         top_layout.addWidget(logo_label)
         
         top_layout.addStretch()
         
         # 中间：导航链接（图标+文本）
         nav_buttons = [
-            ("主页", "home", "res/主页.png"),
-            ("推理", "inference", "res/推理.png"),
-            ("管理", "management", "res/管理.png"),
-            ("设置", "settings", "res/设置.png"),
-            ("联系客服", "support", "res/客服.png")
+            (" 主  页", "home", "res/主页.png"),
+            (" 推  理", "inference", "res/推理.png"),
+            (" 管  理", "management", "res/管理.png"),
+            (" 设  置", "settings", "res/设置.png"),
+            (" 联系客服", "support", "res/客服.png")
         ]
         
         self.nav_buttons = {}
@@ -164,18 +164,16 @@ class MainWindow(QMainWindow):
             icon = QIcon(icon_path)
             btn = QPushButton(icon, text)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setFixedHeight(32)
+            btn.setFixedSize(120, 42)
             btn.setStyleSheet("""
                 QPushButton {
-                    font-size: 32px;
+                    font-size: 42px;
                 }
+                text-align: center;
             """)
             
             # 设置图标大小
-            btn.setIconSize(QSize(26, 26))
-            
-            # 基础样式由全局样式表提供，只设置特殊样式
-            btn.setStyleSheet("text-align: left;")
+            btn.setIconSize(QSize(32, 32))
             
             btn.clicked.connect(lambda checked, k=key: self.on_nav_clicked(k))
             self.nav_buttons[key] = btn

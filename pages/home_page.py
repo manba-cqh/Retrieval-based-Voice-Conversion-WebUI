@@ -259,7 +259,10 @@ class ModelDetailPage(QWidget):
                 font-size: 48px;
             }
         """)
-        image_label.setScaledContents(True)  # 允许自动缩放，保持宽高比
+        image_label.setScaledContents(False)  # 不使用自动缩放，手动控制以保持宽高比
+        
+        # 保存原始pixmap，用于在resize时重新缩放
+        self.original_pixmap = None
         
         # 加载模型图片
         model_image = self.model_data.get("image", "")
@@ -267,7 +270,9 @@ class ModelDetailPage(QWidget):
             try:
                 pixmap = QPixmap(model_image)
                 if not pixmap.isNull():
-                    image_label.setPixmap(pixmap)
+                    self.original_pixmap = pixmap
+                    # 初始设置图片
+                    self._update_image_display(image_label)
                 else:
                     # 图片加载失败，显示占位符
                     image_label.setText("🖼️")
@@ -278,6 +283,17 @@ class ModelDetailPage(QWidget):
         else:
             # 没有图片，显示占位符
             image_label.setText("🖼️")
+        
+        # 保存image_label引用，用于resize时更新
+        self.image_label = image_label
+        
+        # 重写resizeEvent以在窗口大小改变时更新图片
+        original_resize = image_label.resizeEvent
+        def resizeEvent(event):
+            if hasattr(self, 'original_pixmap') and self.original_pixmap and not self.original_pixmap.isNull():
+                self._update_image_display(image_label)
+            original_resize(event)
+        image_label.resizeEvent = resizeEvent
         
         layout.addWidget(image_label, 4)
         
@@ -297,53 +313,36 @@ class ModelDetailPage(QWidget):
         
         info_text = QLabel(f"""
 价格: {self.model_data.get("price", 0)}<br>
-版本: {self.model_data.get("version", "V1")}<br>
-采样率: {self.model_data.get("sample_rate", "48K")}<br>
-类别: {self.model_data.get("category_name", "免费音色")}
         """)
-        # 基础样式由全局样式表提供，只设置特殊字体大小
-        info_text.setStyleSheet("font-size: 14px;")
+        info_text.setStyleSheet("color: #cccccc; font-size: 14px;")
         info_row.addWidget(info_text)
         info_row.addStretch()
-        
-        # 立即购买按钮（如果已购买则显示"已购买"）
-        if self.is_purchased:
-            buy_btn = QPushButton("已购买")
-            buy_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #4caf50;
-                    color: #ffffff;
-                    border: none;
-                    border-radius: 6px;
-                    padding: 10px 30px;
-                    font-size: 14px;
-                    font-weight: bold;
-                }
-            """)
-            buy_btn.setEnabled(False)
-        else:
-            buy_btn = QPushButton("立即购买")
-            buy_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #8b5cf6;
-                    color: #ffffff;
-                    border: none;
-                    border-radius: 6px;
-                    padding: 10px 30px;
-                    font-size: 14px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #7c3aed;
-                }
-            """)
-            buy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        info_row.addWidget(buy_btn)
-        
         info_layout.addLayout(info_row)
+        
         layout.addWidget(info_panel, 1)
         
         return panel
+    
+    def _update_image_display(self, image_label):
+        """更新图片显示，保持原始宽高比"""
+        if not self.original_pixmap or self.original_pixmap.isNull():
+            return
+        
+        # 获取label的可用大小
+        label_size = image_label.size()
+        if label_size.width() <= 0 or label_size.height() <= 0:
+            return
+        
+        # 直接使用pixmap.scaled()方法，传入宽度和高度
+        scaled_pixmap = self.original_pixmap.scaled(
+            label_size.width(),
+            label_size.height(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        
+        # 设置pixmap
+        image_label.setPixmap(scaled_pixmap)
     
     def create_right_panel(self):
         """创建右侧面板"""
