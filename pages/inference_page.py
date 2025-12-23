@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QMessageBox, QSizePolicy, QScrollArea
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QResizeEvent, QPixmap
+from PyQt6.QtGui import QFont, QResizeEvent, QPixmap, QMovie
 
 # 导入工具函数
 from .tools import create_slider
@@ -170,19 +170,44 @@ class ModelCard(QFrame):
         # 如果有图片路径，尝试加载图片
         if self.model_image and os.path.exists(self.model_image):
             try:
-                pixmap = QPixmap(self.model_image)
-                if not pixmap.isNull():
-                    # 缩放图片以适应标签大小，保持宽高比
-                    scaled_pixmap = pixmap.scaled(
-                        100, 100, 
-                        Qt.AspectRatioMode.KeepAspectRatio, 
-                        Qt.TransformationMode.SmoothTransformation
-                    )
-                    image_label.setPixmap(scaled_pixmap)
+                # 检查是否为 GIF 动图
+                file_ext = os.path.splitext(self.model_image)[1].lower()
+                if file_ext == '.gif':
+                    # 使用 QMovie 加载 GIF 动图
+                    movie = QMovie(self.model_image)
+                    movie.setScaledSize(image_label.size())
+                    image_label.setMovie(movie)
+                    movie.start()
+                    # 保存 movie 引用，防止被垃圾回收
+                    self.movie = movie
+                elif file_ext == '.png' or file_ext == '.jpg' or file_ext == '.jpeg' or file_ext == '.bmp' or file_ext == '.webp':
+                    # 使用 QPixmap 加载静态图片（PNG、JPG等）
+                    pixmap = QPixmap(self.model_image)
+                    if not pixmap.isNull():
+                        # 缩放图片以适应标签大小，保持宽高比
+                        scaled_pixmap = pixmap.scaled(
+                            100, 100, 
+                            Qt.AspectRatioMode.KeepAspectRatio, 
+                            Qt.TransformationMode.SmoothTransformation
+                        )
+                        image_label.setPixmap(scaled_pixmap)
+                    else:
+                        # 图片加载失败，显示占位符
+                        placeholder = self.model_name[0] if self.model_name else "?"
+                        image_label.setText(f"<div style='font-size: 64px; color: #8b5cf6;'>{placeholder}</div>")
                 else:
-                    # 图片加载失败，显示占位符
-                    placeholder = self.model_name[0] if self.model_name else "?"
-                    image_label.setText(f"<div style='font-size: 64px; color: #8b5cf6;'>{placeholder}</div>")
+                    # 其他格式，尝试使用 QPixmap
+                    pixmap = QPixmap(self.model_image)
+                    if not pixmap.isNull():
+                        scaled_pixmap = pixmap.scaled(
+                            100, 100, 
+                            Qt.AspectRatioMode.KeepAspectRatio, 
+                            Qt.TransformationMode.SmoothTransformation
+                        )
+                        image_label.setPixmap(scaled_pixmap)
+                    else:
+                        placeholder = self.model_name[0] if self.model_name else "?"
+                        image_label.setText(f"<div style='font-size: 64px; color: #8b5cf6;'>{placeholder}</div>")
             except Exception as e:
                 # 图片加载出错，显示占位符
                 print(f"加载图片失败 {self.model_image}: {e}")
@@ -338,6 +363,8 @@ class InferencePage(QWidget):
         self.model_cards = []
         self.preview_image_label = None
         self.preview_overlay = None  # 预览区域底部蒙层
+        self.preview_movie = None  # 预览区域的 GIF movie（如果使用 GIF）
+        self.preview_is_gif = False  # 预览区域是否为 GIF
         
         # 初始化设备列表
         self.update_devices()
@@ -433,6 +460,16 @@ class InferencePage(QWidget):
             }
         """)
         image_label.setScaledContents(True)  # 允许自动缩放，保持宽高比
+        
+        # 重写 resizeEvent 以在窗口大小改变时更新 GIF 大小
+        original_resize = image_label.resizeEvent
+        def resizeEvent(event):
+            # 如果是 GIF，更新 movie 的缩放大小
+            if hasattr(self, 'preview_is_gif') and self.preview_is_gif and hasattr(self, 'preview_movie') and self.preview_movie:
+                self.preview_movie.setScaledSize(image_label.size())
+            original_resize(event)
+        image_label.resizeEvent = resizeEvent
+        
         content_layout.addWidget(image_label)
         self.preview_image_label = image_label
         
@@ -781,8 +818,41 @@ class InferencePage(QWidget):
         
         # 如果有图片，显示图片；否则显示文本
         if model_image and os.path.exists(model_image):
-            pixmap = QPixmap(model_image)
-            self.preview_image_label.setPixmap(pixmap)
+            try:
+                # 检查是否为 GIF 动图
+                file_ext = os.path.splitext(model_image)[1].lower()
+                if file_ext == '.gif':
+                    # 使用 QMovie 加载 GIF 动图
+                    self.preview_is_gif = True
+                    # 停止之前的 movie（如果存在）
+                    if self.preview_movie:
+                        self.preview_movie.stop()
+                    
+                    movie = QMovie(model_image)
+                    self.preview_movie = movie
+                    # 设置 GIF 动图大小，使其适应预览区域
+                    if self.preview_image_label:
+                        movie.setScaledSize(self.preview_image_label.size())
+                    self.preview_image_label.setMovie(movie)
+                    movie.start()
+                else:
+                    # 使用 QPixmap 加载静态图片（PNG、JPG等）
+                    self.preview_is_gif = False
+                    # 停止之前的 movie（如果存在）
+                    if self.preview_movie:
+                        self.preview_movie.stop()
+                        self.preview_movie = None
+                    
+                    pixmap = QPixmap(model_image)
+                    if not pixmap.isNull():
+                        self.preview_image_label.setPixmap(pixmap)
+                    else:
+                        # 图片加载失败，显示文本
+                        self.preview_image_label.setText(model_data["name"])
+            except Exception as e:
+                # 图片加载出错，显示文本
+                print(f"加载预览图片失败 {model_image}: {e}")
+                self.preview_image_label.setText(model_data["name"])
         else:
             # 图片加载失败，显示文本
             self.preview_image_label.setText(model_data["name"])

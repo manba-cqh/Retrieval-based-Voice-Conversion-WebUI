@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QProgressBar, QMessageBox, QSizePolicy, QSlider
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QUrl, QMetaObject, Q_ARG
-from PyQt6.QtGui import QFont, QPixmap, QIcon
+from PyQt6.QtGui import QFont, QPixmap, QIcon, QMovie
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 from .base_page import BasePage
@@ -65,15 +65,27 @@ class ModelCard(QFrame):
         # 如果有图片路径，尝试加载图片
         if self.model_image and os.path.exists(self.model_image):
             try:
-                pixmap = QPixmap(self.model_image)
-                if not pixmap.isNull():
-                    # 缩放图片以适应标签大小，保持宽高比
-                    scaled_pixmap = pixmap.scaled(
-                        180, 180, 
-                        Qt.AspectRatioMode.KeepAspectRatio, 
-                        Qt.TransformationMode.SmoothTransformation
-                    )
-                    image_label.setPixmap(scaled_pixmap)
+                # 检查是否为 GIF 动图
+                file_ext = os.path.splitext(self.model_image)[1].lower()
+                if file_ext == '.gif':
+                    # 使用 QMovie 加载 GIF 动图
+                    movie = QMovie(self.model_image)
+                    movie.setScaledSize(image_label.size())
+                    image_label.setMovie(movie)
+                    movie.start()
+                    # 保存 movie 引用，防止被垃圾回收
+                    self.movie = movie
+                elif file_ext == '.png' or file_ext == '.jpg' or file_ext == '.jpeg' or file_ext == '.bmp' or file_ext == '.webp':
+                    # 使用 QPixmap 加载静态图片（PNG、JPG等）
+                    pixmap = QPixmap(self.model_image)
+                    if not pixmap.isNull():
+                        # 缩放图片以适应标签大小，保持宽高比
+                        scaled_pixmap = pixmap.scaled(
+                            180, 180, 
+                            Qt.AspectRatioMode.KeepAspectRatio, 
+                            Qt.TransformationMode.SmoothTransformation
+                        )
+                        image_label.setPixmap(scaled_pixmap)
                 else:
                     # 图片加载失败，显示占位符
                     placeholder = self.model_name[0] if self.model_name else "?"
@@ -261,18 +273,34 @@ class ModelDetailPage(QWidget):
         """)
         image_label.setScaledContents(False)  # 不使用自动缩放，手动控制以保持宽高比
         
-        # 保存原始pixmap，用于在resize时重新缩放
+        # 保存原始pixmap或movie，用于在resize时重新缩放
         self.original_pixmap = None
+        self.movie = None
+        self.is_gif = False
         
         # 加载模型图片
         model_image = self.model_data.get("image", "")
         if model_image and os.path.exists(model_image):
             try:
-                pixmap = QPixmap(model_image)
-                if not pixmap.isNull():
-                    self.original_pixmap = pixmap
-                    # 初始设置图片
-                    self._update_image_display(image_label)
+                # 检查是否为 GIF 动图
+                file_ext = os.path.splitext(model_image)[1].lower()
+                if file_ext == '.gif':
+                    # 使用 QMovie 加载 GIF 动图
+                    self.is_gif = True
+                    movie = QMovie(model_image)
+                    self.movie = movie
+                    image_label.setMovie(movie)
+                    # 设置 GIF 动图大小策略，使其自适应
+                    movie.setScaledSize(image_label.size())
+                    movie.start()
+                elif file_ext == '.png' or file_ext == '.jpg' or file_ext == '.jpeg' or file_ext == '.bmp' or file_ext == '.webp':
+                    # 使用 QPixmap 加载静态图片（PNG、JPG等）
+                    self.is_gif = False
+                    pixmap = QPixmap(model_image)
+                    if not pixmap.isNull():
+                        self.original_pixmap = pixmap
+                        # 初始设置图片
+                        self._update_image_display(image_label)
                 else:
                     # 图片加载失败，显示占位符
                     image_label.setText("🖼️")
@@ -290,7 +318,11 @@ class ModelDetailPage(QWidget):
         # 重写resizeEvent以在窗口大小改变时更新图片
         original_resize = image_label.resizeEvent
         def resizeEvent(event):
-            if hasattr(self, 'original_pixmap') and self.original_pixmap and not self.original_pixmap.isNull():
+            if self.is_gif and self.movie:
+                # GIF 动图：更新 movie 的缩放大小
+                self.movie.setScaledSize(image_label.size())
+            elif hasattr(self, 'original_pixmap') and self.original_pixmap and not self.original_pixmap.isNull():
+                # 静态图片：更新显示
                 self._update_image_display(image_label)
             original_resize(event)
         image_label.resizeEvent = resizeEvent
@@ -1095,6 +1127,8 @@ class ModelDetailPage(QWidget):
             
             # 刷新管理页面（如果主窗口可用）
             self._refresh_management_page()
+            # 刷新推理页面（如果主窗口可用）
+            self._refresh_inference_page()
             
             # 检查当前模型是否已下载（通过uuid对比）
             model_uid = self.model_data.get("uid")
@@ -1169,6 +1203,28 @@ class ModelDetailPage(QWidget):
                 parent = parent.parent()
         except Exception as e:
             print(f"刷新管理页面失败: {e}")
+
+    def _refresh_inference_page(self):
+        """刷新推理页面模型列表"""
+        try:
+            # 优先通过main_window引用
+            if self.main_window and hasattr(self.main_window, 'pages'):
+                inference_page = self.main_window.pages.get("inference")
+                if inference_page:
+                    inference_page.load_models()
+                    return
+
+            # 向上查找主窗口
+            parent = self.parent()
+            while parent:
+                if hasattr(parent, 'pages'):
+                    inference_page = parent.pages.get("inference")
+                    if inference_page:
+                        inference_page.load_models()
+                        return
+                parent = parent.parent()
+        except Exception as e:
+            print(f"刷新推理页面失败: {e}")
     
     def _update_download_progress(self, percent, total, status_text):
         """更新下载进度（在主线程中调用）"""
