@@ -707,6 +707,9 @@ class InferencePage(QWidget):
             self.models_data.append(model_data)
             model_id += 1
         
+        # 按模型名称排序
+        self.models_data.sort(key=lambda x: x.get("name", "").lower())
+        
         self.update_model_list()
     
     def _get_user_available_model_uids(self):

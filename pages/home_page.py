@@ -1369,6 +1369,8 @@ class HomePage(BasePage):
             models = result.get("models", [])
             # 转换数据格式
             self.models_data = [self._convert_api_model_to_local(model) for model in models]
+            # 按模型名称排序
+            self.models_data.sort(key=lambda x: x.get("name", "").lower())
             self.filtered_models = self.models_data.copy()
             
             # 更新分类按钮（从实际数据中提取分类）

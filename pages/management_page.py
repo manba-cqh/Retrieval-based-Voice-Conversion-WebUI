@@ -207,6 +207,8 @@ class ManagementPage(BasePage):
     def load_models(self):
         """从models目录加载模型数据"""
         self.models_data = self.fetch_models_from_models_dir()
+        # 按模型名称排序
+        self.models_data.sort(key=lambda x: x.get("name", "").lower())
         self.filtered_models = self.models_data.copy()
         self.update_model_grid()
     
@@ -218,6 +220,8 @@ class ManagementPage(BasePage):
         
         # 重新加载模型数据
         self.models_data = self.fetch_models_from_models_dir()
+        # 按模型名称排序
+        self.models_data.sort(key=lambda x: x.get("name", "").lower())
         
         # 恢复筛选条件并应用筛选
         self.current_category = current_category
