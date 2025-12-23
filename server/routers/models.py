@@ -135,6 +135,80 @@ def download_model_package_by_uuid(
     )
 
 
+@router.get("/by-uuid/{uuid}/audio")
+def get_model_audio_by_uuid(
+    uuid: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """通过UUID获取模型音频文件（用于试听）"""
+    model = db.query(Model).filter(
+        Model.uid == uuid,
+        Model.is_active == True
+    ).first()
+    
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"模型不存在 (UUID: {uuid})"
+        )
+    
+    # 检查权限
+    if not model.is_public and model.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权访问此模型"
+        )
+    
+    # 根据file_path找到模型目录
+    models_base_path = Path(settings.models_base_path)
+    if not models_base_path.is_absolute():
+        project_root = Path(__file__).parent.parent.parent
+        models_base_path = project_root / models_base_path
+    
+    # 获取模型目录
+    model_dir = models_base_path / Path(model.file_path).parent
+    
+    if not model_dir.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="模型目录不存在"
+        )
+    
+    # 查找音频文件
+    audio_extensions = [".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac"]
+    audio_file = None
+    
+    for ext in audio_extensions:
+        audio_files = list(model_dir.glob(f"*{ext}"))
+        if audio_files:
+            audio_file = audio_files[0]
+            break
+    
+    if not audio_file or not audio_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="音频文件不存在"
+        )
+    
+    # 根据文件扩展名确定媒体类型
+    media_types = {
+        ".wav": "audio/wav",
+        ".mp3": "audio/mpeg",
+        ".flac": "audio/flac",
+        ".m4a": "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".aac": "audio/aac"
+    }
+    media_type = media_types.get(audio_file.suffix.lower(), "audio/mpeg")
+    
+    return FileResponse(
+        path=str(audio_file),
+        filename=audio_file.name,
+        media_type=media_type
+    )
+
+
 @router.get("/{model_id}", response_model=ModelResponse)
 def get_model(
     model_id: int,

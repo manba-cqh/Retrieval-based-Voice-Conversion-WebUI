@@ -157,6 +157,11 @@ class ModelDetailPage(QWidget):
         self.download_section = None
         self.use_section = None
         
+        # 音频下载相关
+        self.need_download_audio = False
+        self.audio_download_thread = None
+        self.audio_download_worker = None
+        
         # 查找音频文件
         self.find_audio_file()
         
@@ -487,7 +492,7 @@ class ModelDetailPage(QWidget):
         return section
     
     def find_audio_file(self):
-        """查找模型目录下的音频文件"""
+        """查找模型目录下的音频文件（支持本地和在线模型）"""
         model_name = self.model_data.get("name", "")
         if not model_name:
             return
@@ -495,6 +500,7 @@ class ModelDetailPage(QWidget):
         # 支持的音频格式
         audio_extensions = (".wav", ".mp3", ".flac", ".m4a", ".ogg", ".aac")
         
+        # 首先尝试从本地查找（已下载的模型）
         # 从服务端的models目录查找（使用file_path）
         file_path = self.model_data.get("pth_path", "")
         if file_path:
@@ -540,9 +546,19 @@ class ModelDetailPage(QWidget):
                         if audio_files:
                             self.audio_file_path = os.path.join(model_dir_path, audio_files[0])
                             return
+        
+        # 如果本地找不到，尝试从服务端下载（在线模型）
+        # 标记需要从服务端下载
+        self.audio_file_path = None
+        self.need_download_audio = True
     
     def on_play_clicked(self):
         """播放按钮点击"""
+        # 如果需要从服务端下载音频
+        if self.need_download_audio and not self.audio_file_path:
+            self._download_audio_for_preview()
+            return
+        
         if not self.audio_file_path or not os.path.exists(self.audio_file_path):
             QMessageBox.warning(self, "提示", "未找到音频文件")
             return
@@ -571,6 +587,84 @@ class ModelDetailPage(QWidget):
             self.is_playing = True
             if self.play_btn:
                 self.play_btn.setText("⏸")
+    
+    def _download_audio_for_preview(self):
+        """从服务端下载音频文件用于试听"""
+        model_uid = self.model_data.get("uid")
+        if not model_uid:
+            QMessageBox.warning(self, "错误", "模型UUID不存在")
+            return
+        
+        # 禁用播放按钮
+        if self.play_btn:
+            self.play_btn.setEnabled(False)
+            self.play_btn.setText("下载中...")
+        
+        # 创建临时目录保存音频文件
+        temp_dir = os.path.join(tempfile.gettempdir(), "rvc_audio_preview")
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # 异步下载音频
+        async def download_audio():
+            try:
+                result = await models_api.download_model_audio(model_uid, temp_dir)
+                if result.get("success"):
+                    # 下载成功，更新音频文件路径
+                    downloaded_path = result.get("file_path")
+                    if downloaded_path and os.path.exists(downloaded_path):
+                        self.audio_file_path = downloaded_path
+                        self.need_download_audio = False
+                        # 下载完成后自动播放
+                        return {"success": True, "auto_play": True}
+                    else:
+                        return {"success": False, "message": "音频文件下载失败"}
+                else:
+                    return result
+            except Exception as e:
+                return {"success": False, "message": f"下载失败: {str(e)}"}
+        
+        # 使用异步工具运行
+        self.audio_download_thread, self.audio_download_worker = run_async(download_audio())
+        self.audio_download_worker.finished.connect(self._on_audio_download_finished)
+        self.audio_download_worker.error.connect(self._on_audio_download_error)
+        self.audio_download_thread.start()
+    
+    def _on_audio_download_finished(self, result):
+        """音频下载完成"""
+        # 清理线程
+        if self.audio_download_thread:
+            self.audio_download_thread.quit()
+            self.audio_download_thread.wait()
+            self.audio_download_thread = None
+            self.audio_download_worker = None
+        
+        # 恢复播放按钮
+        if self.play_btn:
+            self.play_btn.setEnabled(True)
+            self.play_btn.setText("▶")
+        
+        if result.get("success"):
+            # 如果设置了自动播放，开始播放
+            if result.get("auto_play"):
+                QTimer.singleShot(100, self.on_play_clicked)
+        else:
+            QMessageBox.warning(self, "错误", result.get("message", "音频下载失败"))
+    
+    def _on_audio_download_error(self, error_msg):
+        """音频下载出错"""
+        # 清理线程
+        if self.audio_download_thread:
+            self.audio_download_thread.quit()
+            self.audio_download_thread.wait()
+            self.audio_download_thread = None
+            self.audio_download_worker = None
+        
+        # 恢复播放按钮
+        if self.play_btn:
+            self.play_btn.setEnabled(True)
+            self.play_btn.setText("▶")
+        
+        QMessageBox.warning(self, "错误", f"音频下载失败: {error_msg}")
     
     def on_media_status_changed(self, status):
         """媒体状态改变"""
