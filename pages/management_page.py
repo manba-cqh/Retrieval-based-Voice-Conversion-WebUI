@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QFont, QIcon
 
 from .base_page import BasePage
+from api.auth import auth_api
 from .home_page import ModelCard, ModelDetailPage
 
 
@@ -209,14 +210,38 @@ class ManagementPage(BasePage):
         self.filtered_models = self.models_data.copy()
         self.update_model_grid()
     
+    def _refresh_models_with_filter(self):
+        """刷新模型数据，但保持当前的筛选条件"""
+        # 保存当前的筛选条件
+        current_category = self.current_category
+        current_search = self.search_input.text() if hasattr(self, 'search_input') else ""
+        
+        # 重新加载模型数据
+        self.models_data = self.fetch_models_from_models_dir()
+        
+        # 恢复筛选条件并应用筛选
+        self.current_category = current_category
+        if hasattr(self, 'search_input'):
+            self.search_input.setText(current_search)
+        
+        # 更新选择指示器
+        if hasattr(self, 'selection_indicator'):
+            self.selection_indicator.setText(f"当前选择: {self.current_category}")
+        
+        # 应用筛选条件
+        self.filter_models()
+    
     def fetch_models_from_models_dir(self):
-        """从models目录获取模型数据"""
+        """从models目录获取模型数据（只返回用户可用的模型）"""
         models_dir = os.path.join(os.getcwd(), "models")
         models_data = []
         
         # 如果models目录不存在，返回空列表
         if not os.path.exists(models_dir):
             return models_data
+        
+        # 获取用户可用的模型UUID列表
+        available_model_uids = self._get_user_available_model_uids()
         
         # 扫描models目录下的所有子目录
         model_id = 1
@@ -287,6 +312,20 @@ class ManagementPage(BasePage):
             # 读取uid（支持uuid或uid字段）
             model_uid = model_info.get("uuid") or model_info.get("uid")
             
+            # 判断是否为免费音色
+            is_free_model = "免费音色" in categories
+            
+            # 对于免费音色，只要本地存在就显示，不需要在用户的可用列表中
+            # 对于非免费音色（官方音色等），必须同时在用户的可用列表中
+            if not is_free_model:
+                # 非免费音色，需要检查用户的可用模型列表
+                if available_model_uids is None:
+                    # 用户未登录或没有可用模型列表，不显示非免费音色
+                    continue
+                elif not model_uid or model_uid not in available_model_uids:
+                    # 模型不在用户的可用列表中，跳过
+                    continue
+            
             # 构建模型数据（兼容管理页面的数据结构）
             model_data = {
                 "id": f"m{model_id}",
@@ -312,6 +351,43 @@ class ManagementPage(BasePage):
             model_id += 1
         
         return models_data
+    
+    def _get_user_available_model_uids(self):
+        """
+        获取用户可用的模型UUID列表
+        
+        Returns:
+            可用模型UUID的集合（set），如果用户未登录或没有可用模型列表则返回None（不显示任何模型）
+        """
+        try:
+            # 尝试从auth_api获取用户信息
+            user_info = auth_api.user_info
+            if not user_info:
+                # 如果auth_api中没有，尝试从存储中加载
+                from api.storage import token_storage
+                user_info = token_storage.load_user_info()
+            
+            if not user_info:
+                # 用户未登录，返回None表示不显示任何模型
+                return None
+            
+            # 获取available_models字段
+            available_models = user_info.get("available_models")
+            if not available_models:
+                # 如果没有available_models字段或为空，返回None表示不显示任何模型
+                return None
+            
+            # 解析分号分隔的UUID列表
+            uids = [uid.strip() for uid in available_models.split(";") if uid.strip()]
+            if not uids:
+                # 如果解析后列表为空，返回None表示不显示任何模型
+                return None
+            return set(uids)  # 返回集合以便快速查找
+            
+        except Exception as e:
+            print(f"获取用户可用模型列表失败: {e}")
+            # 出错时返回None，不显示任何模型
+            return None
     
     def on_category_changed(self, category):
         """分类改变"""

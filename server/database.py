@@ -29,4 +29,30 @@ def get_db():
 def init_db():
     """初始化数据库（创建表）"""
     Base.metadata.create_all(bind=engine)
+    # 执行迁移（如果数据库已存在）
+    _run_migrations()
+
+
+def _run_migrations():
+    """运行数据库迁移"""
+    try:
+        # 检查 users 表是否存在 available_models 列
+        from sqlalchemy import inspect, text
+        inspector = inspect(engine)
+        
+        if "users" in inspector.get_table_names():
+            # 表已存在，检查列
+            columns = [col["name"] for col in inspector.get_columns("users")]
+            
+            if "available_models" not in columns:
+                # 列不存在，添加列
+                print("检测到数据库需要迁移：添加 available_models 列...")
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN available_models TEXT"))
+                    conn.commit()
+                print("迁移完成：已添加 available_models 列")
+    except Exception as e:
+        # 如果迁移失败，记录错误但不阻止启动
+        print(f"数据库迁移警告: {e}")
+        # 不抛出异常，允许应用继续运行
 

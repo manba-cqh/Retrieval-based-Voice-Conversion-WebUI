@@ -1054,13 +1054,14 @@ class ModelDetailPage(QWidget):
                         parent_layout.insertWidget(index, self.use_section)
     
     def _refresh_management_page(self):
-        """刷新管理页面"""
+        """刷新管理页面（保持当前筛选条件）"""
         try:
             # 如果直接有主窗口引用，使用它
             if self.main_window and hasattr(self.main_window, 'pages'):
                 management_page = self.main_window.pages.get("management")
-                if management_page and hasattr(management_page, 'load_models'):
-                    management_page.load_models()
+                if management_page:
+                    # 重新加载模型数据，但保持当前的筛选条件
+                    management_page._refresh_models_with_filter()
                     return
             
             # 否则，尝试向上查找主窗口
@@ -1068,8 +1069,9 @@ class ModelDetailPage(QWidget):
             while parent:
                 if hasattr(parent, 'pages'):
                     management_page = parent.pages.get("management")
-                    if management_page and hasattr(management_page, 'load_models'):
-                        management_page.load_models()
+                    if management_page:
+                        # 重新加载模型数据，但保持当前的筛选条件
+                        management_page._refresh_models_with_filter()
                         return
                 parent = parent.parent()
         except Exception as e:

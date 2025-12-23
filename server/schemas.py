@@ -26,6 +26,7 @@ class UserLogin(BaseModel):
 class UserResponse(UserBase):
     """用户响应"""
     id: int
+    available_models: Optional[str] = None  # 可用模型的UUID列表，用分号分隔
     is_active: bool
     created_at: datetime
     
