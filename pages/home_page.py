@@ -1583,7 +1583,7 @@ class HomePage(BasePage):
         
         grid_widget.setLayout(grid_container)
         self.scroll_area.setWidget(grid_widget)
-        list_layout.addWidget(self.scroll_area)
+        list_layout.addWidget(self.scroll_area, stretch=1)
         self.scroll_area.hide()
         
         self.stacked_widget.addWidget(self.list_page)
@@ -1778,9 +1778,6 @@ class HomePage(BasePage):
             self.models_data.sort(key=lambda x: x.get("name", "").lower())
             self.filtered_models = self.models_data.copy()
             
-            # 更新分类按钮（从实际数据中提取分类）
-            self._update_category_buttons()
-            
             # 更新模型网格
             self.update_model_grid()
         else:
@@ -1969,100 +1966,6 @@ class HomePage(BasePage):
             converted_model["tags"] = api_model["tags"]
         
         return converted_model
-    
-    def _update_category_buttons(self):
-        """根据实际模型数据更新分类按钮"""
-        # 从模型数据中提取所有分类
-        categories = set()
-        for model in self.models_data:
-            category = model.get("category", "")
-            if category:
-                # 支持多个分类用分号分隔
-                for cat in category.split(";"):
-                    cat = cat.strip()
-                    if cat:
-                        categories.add(cat)
-        
-        # 如果没有任何分类，使用默认分类
-        if not categories:
-            categories = {"免费音色", "官方音色"}
-        
-        # 排序分类列表
-        sorted_categories = sorted(categories)
-        
-        # 更新分类按钮
-        # 先清除旧的按钮（除了搜索框）
-        if hasattr(self, 'categories_layout'):
-            # 保存搜索框
-            search_widget = None
-            stretch_index = None
-            for i in range(self.categories_layout.count()):
-                item = self.categories_layout.itemAt(i)
-                if item:
-                    widget = item.widget()
-                    if widget == self.search_input:
-                        search_widget = widget
-                        stretch_index = i
-                    elif widget and widget in self.category_buttons.values():
-                        widget.deleteLater()
-            
-            # 清除所有项
-            while self.categories_layout.count():
-                item = self.categories_layout.takeAt(0)
-                if item and item.widget() and item.widget() != self.search_input:
-                    item.widget().deleteLater()
-            
-            self.category_buttons.clear()
-            
-            # 添加"全部"按钮
-            categories_list = ["全部"] + sorted_categories
-            
-            # 重新创建分类按钮
-            for category in categories_list:
-                btn = QPushButton(category)
-                btn.setCheckable(True)
-                btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                btn.clicked.connect(lambda checked, cat=category: self.on_category_changed(cat))
-                
-                if category == "全部":
-                    btn.setChecked(True)
-                    btn.setStyleSheet("""
-                        QPushButton {
-                            background-color: #e74c3c;
-                            color: #ffffff;
-                            border: none;
-                            border-radius: 6px;
-                            padding: 8px 20px;
-                            font-size: 14px;
-                            font-weight: bold;
-                        }
-                    """)
-                else:
-                    btn.setStyleSheet("""
-                        QPushButton {
-                            background-color: #2d2d2d;
-                            color: #ffffff;
-                            border: none;
-                            border-radius: 6px;
-                            padding: 8px 20px;
-                            font-size: 14px;
-                        }
-                        QPushButton:hover {
-                            background-color: #3d3d3d;
-                        }
-                        QPushButton:checked {
-                            background-color: #8b5cf6;
-                        }
-                    """)
-                
-                self.category_buttons[category] = btn
-                self.categories_layout.addWidget(btn)
-            
-            # 添加拉伸和搜索框
-            self.categories_layout.addStretch()
-            if search_widget:
-                self.categories_layout.addWidget(search_widget)
-    
     
     def on_category_changed(self, category):
         """分类改变"""
