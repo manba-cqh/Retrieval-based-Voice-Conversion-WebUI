@@ -245,6 +245,95 @@ class ModelsAPI(AsyncAPIClient):
                 "message": f"下载错误: {str(e)}"
             }
     
+    async def download_model_image(self, uuid: str, save_dir: str, progress_callback=None) -> Dict[str, Any]:
+        """
+        下载模型图片文件（异步）
+        
+        Args:
+            uuid: 模型UUID
+            save_dir: 保存目录（不包含文件名）
+            progress_callback: 进度回调函数，接收 (downloaded, total) 参数
+        
+        Returns:
+            下载结果字典，包含 file_path（完整路径）和 file_name（文件名）
+        """
+        import httpx
+        import os
+        import re
+        
+        base_url = self._get_url(API_MODELS)
+        if base_url.endswith('/'):
+            base_url = base_url.rstrip('/')
+        url = f"{base_url}/by-uuid/{uuid}/image"
+        headers = self._get_headers()
+        
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                async with client.stream("GET", url, headers=headers) as response:
+                    response.raise_for_status()
+                    
+                    # 从Content-Disposition头获取文件名
+                    content_disposition = response.headers.get("content-disposition", "")
+                    file_name = None
+                    if content_disposition:
+                        filename_match = re.search(r'filename[^;=\n]*=(([\'"]).*?\2|[^;\n]*)', content_disposition)
+                        if filename_match:
+                            file_name = filename_match.group(1).strip('\'"')
+                    
+                    # 如果没有从header获取到文件名，使用默认名称
+                    if not file_name:
+                        # 从Content-Type推断扩展名
+                        content_type = response.headers.get("content-type", "")
+                        ext_map = {
+                            "image/png": ".png",
+                            "image/jpeg": ".jpg",
+                            "image/gif": ".gif",
+                            "image/bmp": ".bmp",
+                            "image/webp": ".webp"
+                        }
+                        ext = ext_map.get(content_type.split(";")[0].strip(), ".png")
+                        file_name = f"{uuid}_preview{ext}"
+                    
+                    # 构建完整路径
+                    save_path = os.path.join(save_dir, file_name)
+                    
+                    total_size = int(response.headers.get("content-length", 0))
+                    
+                    # 确保目录存在
+                    os.makedirs(save_dir, exist_ok=True)
+                    
+                    downloaded = 0
+                    with open(save_path, "wb") as f:
+                        async for chunk in response.aiter_bytes():
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if progress_callback and total_size > 0:
+                                progress_callback(downloaded, total_size)
+                    
+                    return {
+                        "success": True,
+                        "message": "下载完成",
+                        "file_path": save_path,
+                        "file_name": file_name,
+                        "file_size": downloaded
+                    }
+        except httpx.HTTPStatusError as e:
+            error_msg = "下载失败"
+            try:
+                error_data = e.response.json()
+                error_msg = error_data.get("detail", error_msg)
+            except:
+                error_msg = f"下载失败: {e.response.status_code}"
+            return {
+                "success": False,
+                "message": error_msg
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"下载失败: {str(e)}"
+            }
+    
     async def download_model_audio(self, uuid: str, save_dir: str, progress_callback=None) -> Dict[str, Any]:
         """
         下载模型音频文件（用于试听）（异步）

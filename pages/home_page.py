@@ -22,12 +22,18 @@ class ModelCard(QFrame):
     """模型卡片组件"""
     detail_clicked = pyqtSignal(str)  # 发送模型ID
     
-    def __init__(self, model_data, parent=None):
+    def __init__(self, model_data, parent=None, load_online=False):
         super().__init__(parent)
         self.model_id = model_data.get("id", "")
         self.model_name = model_data.get("name", "未知")
         self.model_image = model_data.get("image", "")
         self.model_category = model_data.get("category", "全部")
+        self.model_data = model_data  # 保存完整的模型数据，用于获取UUID
+        self.load_online = load_online  # 是否优先从服务端加载图片（主页使用）
+        
+        # 图片下载线程相关（仅用于在线加载）
+        self.image_download_thread = None
+        self.image_download_worker = None
         
         self.setup_ui()
     
@@ -62,43 +68,16 @@ class ModelCard(QFrame):
             }
         """)
         
-        # 如果有图片路径，尝试加载图片
-        if self.model_image and os.path.exists(self.model_image):
-            try:
-                # 检查是否为 GIF 动图
-                file_ext = os.path.splitext(self.model_image)[1].lower()
-                if file_ext == '.gif':
-                    # 使用 QMovie 加载 GIF 动图
-                    movie = QMovie(self.model_image)
-                    movie.setScaledSize(image_label.size())
-                    image_label.setMovie(movie)
-                    movie.start()
-                    # 保存 movie 引用，防止被垃圾回收
-                    self.movie = movie
-                elif file_ext == '.png' or file_ext == '.jpg' or file_ext == '.jpeg' or file_ext == '.bmp' or file_ext == '.webp':
-                    # 使用 QPixmap 加载静态图片（PNG、JPG等）
-                    pixmap = QPixmap(self.model_image)
-                    if not pixmap.isNull():
-                        # 缩放图片以适应标签大小，保持宽高比
-                        scaled_pixmap = pixmap.scaled(
-                            180, 180, 
-                            Qt.AspectRatioMode.KeepAspectRatio, 
-                            Qt.TransformationMode.SmoothTransformation
-                        )
-                        image_label.setPixmap(scaled_pixmap)
-                else:
-                    # 图片加载失败，显示占位符
-                    placeholder = self.model_name[0] if self.model_name else "?"
-                    image_label.setText(f"<div style='font-size: 48px; color: #8b5cf6;'>{placeholder}</div>")
-            except Exception as e:
-                # 图片加载出错，显示占位符
-                print(f"加载图片失败 {self.model_image}: {e}")
-                placeholder = self.model_name[0] if self.model_name else "?"
-                image_label.setText(f"<div style='font-size: 48px; color: #8b5cf6;'>{placeholder}</div>")
+        # 保存 image_label 引用，用于后续更新
+        self.image_label = image_label
+        
+        # 根据 load_online 标志决定加载方式
+        if self.load_online:
+            # 主页使用：优先从服务端下载图片
+            self._load_online_image()
         else:
-            # 根据名称生成占位符
-            placeholder = self.model_name[0] if self.model_name else "?"
-            image_label.setText(f"<div style='font-size: 48px; color: #8b5cf6;'>{placeholder}</div>")
+            # 管理页面使用：读取本地路径
+            self._load_local_image()
         
         image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(image_label)
@@ -133,6 +112,135 @@ class ModelCard(QFrame):
         layout.addWidget(detail_btn)
         
         layout.addStretch()
+    
+    def _load_local_image(self):
+        """加载本地图片（管理页面使用）"""
+        if self.model_image and os.path.exists(self.model_image):
+            try:
+                # 检查是否为 GIF 动图
+                file_ext = os.path.splitext(self.model_image)[1].lower()
+                if file_ext == '.gif':
+                    # 使用 QMovie 加载 GIF 动图
+                    movie = QMovie(self.model_image)
+                    movie.setScaledSize(self.image_label.size())
+                    self.image_label.setMovie(movie)
+                    movie.start()
+                    # 保存 movie 引用，防止被垃圾回收
+                    self.movie = movie
+                elif file_ext == '.png' or file_ext == '.jpg' or file_ext == '.jpeg' or file_ext == '.bmp' or file_ext == '.webp':
+                    # 使用 QPixmap 加载静态图片（PNG、JPG等）
+                    pixmap = QPixmap(self.model_image)
+                    if not pixmap.isNull():
+                        # 缩放图片以适应标签大小，保持宽高比
+                        scaled_pixmap = pixmap.scaled(
+                            180, 180, 
+                            Qt.AspectRatioMode.KeepAspectRatio, 
+                            Qt.TransformationMode.SmoothTransformation
+                        )
+                        self.image_label.setPixmap(scaled_pixmap)
+                else:
+                    # 图片加载失败，显示占位符
+                    placeholder = self.model_name[0] if self.model_name else "?"
+                    self.image_label.setText(f"<div style='font-size: 48px; color: #8b5cf6;'>{placeholder}</div>")
+            except Exception as e:
+                # 图片加载出错，显示占位符
+                print(f"加载图片失败 {self.model_image}: {e}")
+                placeholder = self.model_name[0] if self.model_name else "?"
+                self.image_label.setText(f"<div style='font-size: 48px; color: #8b5cf6;'>{placeholder}</div>")
+        else:
+            # 根据名称生成占位符
+            placeholder = self.model_name[0] if self.model_name else "?"
+            self.image_label.setText(f"<div style='font-size: 48px; color: #8b5cf6;'>{placeholder}</div>")
+    
+    def _load_online_image(self):
+        """从服务端下载并显示图片（主页使用，优先从服务端获取）"""
+        # 先尝试加载本地图片（如果存在）
+        if self.model_image and os.path.exists(self.model_image):
+            self._load_local_image()
+            return  # 本地图片存在，直接使用
+        
+        # 显示占位符
+        placeholder = self.model_name[0] if self.model_name else "?"
+        self.image_label.setText(f"<div style='font-size: 48px; color: #8b5cf6;'>{placeholder}</div>")
+        
+        # 获取模型UUID
+        model_uid = self.model_data.get("uid")
+        if not model_uid:
+            # 如果没有UUID，无法下载，显示占位符
+            return
+        
+        # 异步下载图片
+        async def download_image():
+            try:
+                # 创建临时目录保存图片
+                temp_dir = os.path.join(tempfile.gettempdir(), "rvc_model_images")
+                os.makedirs(temp_dir, exist_ok=True)
+                
+                result = await models_api.download_model_image(model_uid, temp_dir)
+                if result.get("success"):
+                    downloaded_path = result.get("file_path")
+                    if downloaded_path and os.path.exists(downloaded_path):
+                        # 下载成功，更新图片路径并加载
+                        self.model_image = downloaded_path
+                        # 使用QTimer在主线程中更新UI
+                        QTimer.singleShot(0, lambda: self._load_local_image())
+                        return {"success": True}
+                    else:
+                        return {"success": False, "message": "图片文件下载失败"}
+                else:
+                    return result
+            except Exception as e:
+                return {"success": False, "message": f"下载失败: {str(e)}"}
+        
+        # 使用异步工具运行
+        # 如果已有下载线程在运行，先清理
+        if self.image_download_thread and self.image_download_thread.isRunning():
+            try:
+                if self.image_download_worker:
+                    self.image_download_worker.finished.disconnect()
+                    self.image_download_worker.error.disconnect()
+                self.image_download_thread.quit()
+                self.image_download_thread.wait(1000)  # 等待最多1秒
+                if self.image_download_thread.isRunning():
+                    self.image_download_thread.terminate()
+                    self.image_download_thread.wait()
+            except Exception as e:
+                print(f"清理图片下载线程时出错: {e}")
+            finally:
+                if self.image_download_thread:
+                    self.image_download_thread.deleteLater()
+                if self.image_download_worker:
+                    self.image_download_worker.deleteLater()
+                self.image_download_thread = None
+                self.image_download_worker = None
+        
+        # 创建新的下载线程
+        self.image_download_thread, self.image_download_worker = run_async(download_image())
+        self.image_download_worker.finished.connect(lambda result: None)  # 静默处理完成
+        self.image_download_worker.error.connect(lambda error: None)  # 静默处理错误
+        self.image_download_thread.start()
+    
+    def cleanup(self):
+        """清理资源，包括停止下载线程"""
+        if self.image_download_thread and self.image_download_thread.isRunning():
+            try:
+                if self.image_download_worker:
+                    self.image_download_worker.finished.disconnect()
+                    self.image_download_worker.error.disconnect()
+                self.image_download_thread.quit()
+                self.image_download_thread.wait(1000)  # 等待最多1秒
+                if self.image_download_thread.isRunning():
+                    self.image_download_thread.terminate()
+                    self.image_download_thread.wait()
+            except Exception as e:
+                print(f"清理图片下载线程时出错: {e}")
+            finally:
+                if self.image_download_thread:
+                    self.image_download_thread.deleteLater()
+                if self.image_download_worker:
+                    self.image_download_worker.deleteLater()
+                self.image_download_thread = None
+                self.image_download_worker = None
 
 
 class ModelDetailPage(QWidget):
@@ -1883,16 +1991,20 @@ class HomePage(BasePage):
     
     def update_model_grid(self):
         """更新模型网格"""
-        # 清除现有卡片
+        # 清除现有卡片（先清理资源）
         while self.grid_layout.count():
             child = self.grid_layout.takeAt(0)
             if child.widget():
-                child.widget().deleteLater()
+                widget = child.widget()
+                # 如果是ModelCard且使用了在线加载，先清理其资源
+                if isinstance(widget, ModelCard) and widget.load_online:
+                    widget.cleanup()
+                widget.deleteLater()
         
-        # 添加模型卡片
+        # 添加模型卡片（主页使用，优先从服务端获取图片）
         columns = 5  # 每行5个
         for i, model_data in enumerate(self.filtered_models):
-            card = ModelCard(model_data)
+            card = ModelCard(model_data, load_online=True)  # 主页使用在线加载
             card.detail_clicked.connect(self.on_model_detail_clicked)
             
             row = i // columns

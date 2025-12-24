@@ -135,6 +135,90 @@ def download_model_package_by_uuid(
     )
 
 
+@router.get("/by-uuid/{uuid}/image")
+def get_model_image_by_uuid(
+    uuid: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """通过UUID获取模型图片文件"""
+    model = db.query(Model).filter(
+        Model.uid == uuid,
+        Model.is_active == True
+    ).first()
+
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"模型不存在 (UUID: {uuid})"
+        )
+
+    # 检查权限
+    if not model.is_public and model.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权访问此模型"
+        )
+
+    # 根据file_path找到模型目录
+    models_base_path = Path(settings.models_base_path)
+    if not models_base_path.is_absolute():
+        project_root = Path(__file__).parent.parent.parent
+        models_base_path = project_root / models_base_path
+
+    # 获取模型目录
+    model_dir = models_base_path / Path(model.file_path).parent
+
+    if not model_dir.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="模型目录不存在"
+        )
+
+    # 查找图片文件
+    image_extensions = [".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"]
+    image_file = None
+
+    # 尝试查找与模型文件同名的图片
+    file_name_without_ext = Path(model.file_path).stem
+    for ext in image_extensions:
+        potential_image = model_dir / (file_name_without_ext + ext)
+        if potential_image.exists():
+            image_file = potential_image
+            break
+    
+    # 如果没有找到同名图片，查找目录下的任意图片文件
+    if not image_file:
+        for ext in image_extensions:
+            images_in_dir = list(model_dir.glob(f"*{ext}"))
+            if images_in_dir:
+                image_file = images_in_dir[0]
+                break
+
+    if not image_file or not image_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="图片文件不存在"
+        )
+
+    # 根据文件扩展名确定媒体类型
+    media_types = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".bmp": "image/bmp",
+        ".gif": "image/gif",
+        ".webp": "image/webp"
+    }
+    media_type = media_types.get(image_file.suffix.lower(), "application/octet-stream")
+
+    return FileResponse(
+        path=str(image_file),
+        filename=image_file.name,
+        media_type=media_type
+    )
+
+
 @router.get("/by-uuid/{uuid}/audio")
 def get_model_audio_by_uuid(
     uuid: str,
