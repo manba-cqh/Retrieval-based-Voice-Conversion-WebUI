@@ -621,9 +621,17 @@ class ModelDetailPage(QWidget):
             self.use_section = self.create_use_section()
             layout.addWidget(self.use_section, 5)
         else:
-            # 试用
-            trial_section = self.create_trial_section()
-            layout.addWidget(trial_section, 5)
+            # 检查是否为免费模型
+            category = self.model_data.get("category", "")
+            is_free_model = False
+            if category:
+                categories = [cat.strip() for cat in category.split(";")]
+                is_free_model = "免费音色" in categories
+            
+            # 如果不是免费模型，显示试用区块
+            if not is_free_model:
+                trial_section = self.create_trial_section()
+                layout.addWidget(trial_section, 5)
             
             # 下载
             self.download_section = self.create_download_section()
