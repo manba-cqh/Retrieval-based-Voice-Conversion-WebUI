@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QScrollArea, QGridLayout, QFrame, QStackedWidget,
     QProgressBar, QMessageBox, QSizePolicy, QSlider
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QUrl, QMetaObject, Q_ARG
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QUrl, QMetaObject, Q_ARG, QSize
 from PyQt6.QtGui import QFont, QPixmap, QIcon, QMovie
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
@@ -34,6 +34,10 @@ class ModelCard(QFrame):
         # 图片下载线程相关（仅用于在线加载）
         self.image_download_thread = None
         self.image_download_worker = None
+        
+        # 保存图片对象引用，用于传递给详情页
+        self.original_pixmap = None  # 静态图片的原始 pixmap
+        self.movie = None  # GIF 动图的 movie 对象
         
         self.setup_ui()
     
@@ -131,6 +135,8 @@ class ModelCard(QFrame):
                     # 使用 QPixmap 加载静态图片（PNG、JPG等）
                     pixmap = QPixmap(self.model_image)
                     if not pixmap.isNull():
+                        # 保存原始 pixmap，用于传递给详情页
+                        self.original_pixmap = pixmap
                         # 缩放图片以适应标签大小，保持宽高比
                         scaled_pixmap = pixmap.scaled(
                             180, 180, 
@@ -248,12 +254,13 @@ class ModelDetailPage(QWidget):
     back_clicked = pyqtSignal()  # 返回信号
     progress_updated = pyqtSignal(int, int, str)  # 进度更新信号 (downloaded, total, status_text)
     
-    def __init__(self, model_data, parent=None, is_purchased=False, home_page=None, main_window=None):
+    def __init__(self, model_data, parent=None, is_purchased=False, home_page=None, main_window=None, model_image=None):
         super().__init__(parent)
         self.model_data = model_data
         self.is_purchased = is_purchased  # 是否已购买/已下载
         self.home_page = home_page  # 主页引用，用于更新本地模型uid列表
         self.main_window = main_window  # 主窗口引用，用于刷新管理页面
+        self.model_image = model_image  # 模型图片（QPixmap 或 QMovie），由调用者传递
         self.trial_timer = QTimer()
         self.trial_timer.timeout.connect(self.update_trial_time)
         self.trial_seconds = 0
@@ -385,40 +392,110 @@ class ModelDetailPage(QWidget):
         self.original_pixmap = None
         self.movie = None
         self.is_gif = False
+        self.movie_original_size = None  # 保存 QMovie 的原始尺寸
         
-        # 加载模型图片
-        model_image = self.model_data.get("image", "")
-        if model_image and os.path.exists(model_image):
-            try:
-                # 检查是否为 GIF 动图
-                file_ext = os.path.splitext(model_image)[1].lower()
-                if file_ext == '.gif':
-                    # 使用 QMovie 加载 GIF 动图
-                    self.is_gif = True
-                    movie = QMovie(model_image)
-                    self.movie = movie
-                    image_label.setMovie(movie)
-                    # 设置 GIF 动图大小策略，使其自适应
-                    movie.setScaledSize(image_label.size())
-                    movie.start()
-                elif file_ext == '.png' or file_ext == '.jpg' or file_ext == '.jpeg' or file_ext == '.bmp' or file_ext == '.webp':
-                    # 使用 QPixmap 加载静态图片（PNG、JPG等）
-                    self.is_gif = False
-                    pixmap = QPixmap(model_image)
+        # 加载模型图片：优先使用调用者传递的图片对象
+        if self.model_image:
+            # 如果传递的是 QMovie（GIF）
+            if isinstance(self.model_image, QMovie):
+                self.is_gif = True
+                self.movie = self.model_image
+                image_label.setMovie(self.movie)
+                
+                # 获取 QMovie 的原始尺寸
+                # 先启动 movie 以确保可以获取帧信息
+                if not self.movie.state() == QMovie.MovieState.Running:
+                    self.movie.start()
+                
+                # 尝试获取原始尺寸
+                if self.movie.frameCount() > 0:
+                    # 跳转到第一帧并获取尺寸
+                    current_frame = self.movie.currentFrameNumber()
+                    self.movie.jumpToFrame(0)
+                    pixmap = self.movie.currentPixmap()
                     if not pixmap.isNull():
-                        self.original_pixmap = pixmap
-                        # 初始设置图片
-                        self._update_image_display(image_label)
+                        self.movie_original_size = pixmap.size()
+                        # 恢复原来的帧
+                        if current_frame >= 0:
+                            self.movie.jumpToFrame(current_frame)
+                    else:
+                        # 如果获取失败，尝试等待一帧
+                        from PyQt6.QtCore import QTimer
+                        def get_movie_size():
+                            if self.movie and self.movie.frameCount() > 0:
+                                pixmap = self.movie.currentPixmap()
+                                if not pixmap.isNull():
+                                    self.movie_original_size = pixmap.size()
+                                    self._update_movie_display(image_label)
+                        QTimer.singleShot(100, get_movie_size)
                 else:
-                    # 图片加载失败，显示占位符
-                    image_label.setText("🖼️")
-            except Exception as e:
-                # 图片加载出错，显示占位符
-                print(f"加载详情图片失败 {model_image}: {e}")
+                    # 如果无法获取帧数，等待一帧后获取尺寸
+                    from PyQt6.QtCore import QTimer
+                    def get_movie_size():
+                        if self.movie and self.movie.frameCount() > 0:
+                            pixmap = self.movie.currentPixmap()
+                            if not pixmap.isNull():
+                                self.movie_original_size = pixmap.size()
+                                self._update_movie_display(image_label)
+                    QTimer.singleShot(100, get_movie_size)
+                
+                # 设置 GIF 动图大小策略，保持宽高比
+                # 如果已经获取到原始尺寸，立即更新显示
+                if self.movie_original_size:
+                    self._update_movie_display(image_label)
+            # 如果传递的是 QPixmap（静态图片）
+            elif isinstance(self.model_image, QPixmap) and not self.model_image.isNull():
+                self.is_gif = False
+                self.original_pixmap = self.model_image
+                # 初始设置图片
+                self._update_image_display(image_label)
+            else:
+                # 图片对象无效，显示占位符
                 image_label.setText("🖼️")
         else:
-            # 没有图片，显示占位符
-            image_label.setText("🖼️")
+            # 没有传递图片对象，尝试从 model_data 获取图片路径（向后兼容）
+            model_image_path = self.model_data.get("image", "")
+            if model_image_path and os.path.exists(model_image_path):
+                try:
+                    # 检查是否为 GIF 动图
+                    file_ext = os.path.splitext(model_image_path)[1].lower()
+                    if file_ext == '.gif':
+                        # 使用 QMovie 加载 GIF 动图
+                        self.is_gif = True
+                        movie = QMovie(model_image_path)
+                        self.movie = movie
+                        # 获取 QMovie 的原始尺寸
+                        movie.start()
+                        from PyQt6.QtCore import QTimer
+                        def get_movie_size():
+                            if movie.frameCount() > 0:
+                                self.movie_original_size = movie.currentPixmap().size()
+                                self._update_movie_display(image_label)
+                        QTimer.singleShot(100, get_movie_size)
+                        
+                        image_label.setMovie(movie)
+                        # 设置 GIF 动图大小策略，保持宽高比
+                        self._update_movie_display(image_label)
+                    elif file_ext == '.png' or file_ext == '.jpg' or file_ext == '.jpeg' or file_ext == '.bmp' or file_ext == '.webp':
+                        # 使用 QPixmap 加载静态图片（PNG、JPG等）
+                        self.is_gif = False
+                        pixmap = QPixmap(model_image_path)
+                        if not pixmap.isNull():
+                            self.original_pixmap = pixmap
+                            # 初始设置图片
+                            self._update_image_display(image_label)
+                        else:
+                            image_label.setText("🖼️")
+                    else:
+                        # 图片加载失败，显示占位符
+                        image_label.setText("🖼️")
+                except Exception as e:
+                    # 图片加载出错，显示占位符
+                    print(f"加载详情图片失败 {model_image_path}: {e}")
+                    image_label.setText("🖼️")
+            else:
+                # 没有图片，显示占位符
+                image_label.setText("🖼️")
         
         # 保存image_label引用，用于resize时更新
         self.image_label = image_label
@@ -427,8 +504,8 @@ class ModelDetailPage(QWidget):
         original_resize = image_label.resizeEvent
         def resizeEvent(event):
             if self.is_gif and self.movie:
-                # GIF 动图：更新 movie 的缩放大小
-                self.movie.setScaledSize(image_label.size())
+                # GIF 动图：更新 movie 的缩放大小，保持宽高比
+                self._update_movie_display(image_label)
             elif hasattr(self, 'original_pixmap') and self.original_pixmap and not self.original_pixmap.isNull():
                 # 静态图片：更新显示
                 self._update_image_display(image_label)
@@ -483,6 +560,46 @@ class ModelDetailPage(QWidget):
         
         # 设置pixmap
         image_label.setPixmap(scaled_pixmap)
+    
+    def _update_movie_display(self, image_label):
+        """更新 GIF 动图显示，保持原始宽高比"""
+        if not self.movie:
+            return
+        
+        # 获取label的可用大小
+        label_size = image_label.size()
+        if label_size.width() <= 0 or label_size.height() <= 0:
+            return
+        
+        # 获取原始尺寸
+        if not self.movie_original_size:
+            # 如果还没有获取到原始尺寸，尝试获取
+            if self.movie.frameCount() > 0:
+                self.movie_original_size = self.movie.currentPixmap().size()
+            else:
+                # 如果无法获取，使用 label 的尺寸（不缩放）
+                self.movie.setScaledSize(label_size)
+                return
+        
+        # 计算保持宽高比的缩放尺寸
+        original_width = self.movie_original_size.width()
+        original_height = self.movie_original_size.height()
+        
+        if original_width <= 0 or original_height <= 0:
+            self.movie.setScaledSize(label_size)
+            return
+        
+        # 计算缩放比例
+        width_ratio = label_size.width() / original_width
+        height_ratio = label_size.height() / original_height
+        scale_ratio = min(width_ratio, height_ratio)  # 使用较小的比例以保持宽高比
+        
+        # 计算缩放后的尺寸
+        scaled_width = int(original_width * scale_ratio)
+        scaled_height = int(original_height * scale_ratio)
+        
+        # 设置缩放尺寸
+        self.movie.setScaledSize(QSize(scaled_width, scaled_height))
     
     def create_right_panel(self):
         """创建右侧面板"""
@@ -2031,6 +2148,30 @@ class HomePage(BasePage):
             QMessageBox.warning(self, "错误", "未找到模型信息")
             return
         
+        # 查找对应的 ModelCard，获取图片对象
+        model_image = None
+        for i in range(self.grid_layout.count()):
+            item = self.grid_layout.itemAt(i)
+            if item and item.widget():
+                widget = item.widget()
+                if isinstance(widget, ModelCard) and widget.model_id == model_id:
+                    # 优先使用 movie（GIF），否则使用 original_pixmap
+                    if hasattr(widget, 'movie') and widget.movie:
+                        # 创建新的 QMovie 实例（因为 QMovie 不能直接复制）
+                        # 如果 ModelCard 有图片路径，使用路径创建新的 QMovie
+                        if widget.model_image and os.path.exists(widget.model_image):
+                            model_image = QMovie(widget.model_image)
+                            model_image.start()
+                    elif hasattr(widget, 'original_pixmap') and widget.original_pixmap and not widget.original_pixmap.isNull():
+                        # 复制 QPixmap
+                        model_image = QPixmap(widget.original_pixmap)
+                    elif hasattr(widget, 'image_label') and widget.image_label:
+                        # 尝试从 image_label 获取 pixmap（备用方案）
+                        pixmap = widget.image_label.pixmap()
+                        if pixmap and not pixmap.isNull():
+                            model_image = QPixmap(pixmap)
+                    break
+        
         # 检查本地是否有相同uid的模型
         model_uid = model_data.get("uid")
         is_downloaded = False
@@ -2081,7 +2222,7 @@ class HomePage(BasePage):
                 break
             parent = parent.parent()
         
-        self.detail_page = ModelDetailPage(detail_data, is_purchased=is_downloaded, home_page=self, main_window=main_window)
+        self.detail_page = ModelDetailPage(detail_data, is_purchased=is_downloaded, home_page=self, main_window=main_window, model_image=model_image)
         self.detail_page.back_clicked.connect(self.show_list_page)
         self.detail_page.setParent(self.stacked_widget)
         

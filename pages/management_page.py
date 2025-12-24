@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QFont, QIcon, QPixmap, QMovie
 
 from .base_page import BasePage
 from api.auth import auth_api
@@ -524,6 +524,27 @@ class ManagementPage(BasePage):
             QMessageBox.warning(self, "错误", "未找到模型信息")
             return
         
+        # 查找对应的 ModelCard，获取图片对象
+        model_image = None
+        for i in range(self.grid_layout.count()):
+            item = self.grid_layout.itemAt(i)
+            if item and item.widget():
+                widget = item.widget()
+                if isinstance(widget, ModelCard) and widget.model_id == model_id:
+                    # 优先使用 movie（GIF），否则尝试从 image_label 获取 pixmap
+                    if hasattr(widget, 'movie') and widget.movie:
+                        # 创建新的 QMovie 实例（因为 QMovie 不能直接复制）
+                        # 如果 ModelCard 有图片路径，使用路径创建新的 QMovie
+                        if widget.model_image and os.path.exists(widget.model_image):
+                            model_image = QMovie(widget.model_image)
+                            model_image.start()
+                    elif hasattr(widget, 'image_label') and widget.image_label:
+                        # 尝试从 image_label 获取 pixmap
+                        pixmap = widget.image_label.pixmap()
+                        if pixmap and not pixmap.isNull():
+                            model_image = QPixmap(pixmap)
+                    break
+        
         # 创建或更新详情页面
         if self.detail_page:
             self.detail_page.deleteLater()
@@ -548,7 +569,7 @@ class ManagementPage(BasePage):
                 break
             parent = parent.parent()
         
-        self.detail_page = ModelDetailPage(detail_data, is_purchased=True, main_window=main_window)
+        self.detail_page = ModelDetailPage(detail_data, is_purchased=True, main_window=main_window, model_image=model_image)
         self.detail_page.back_clicked.connect(self.show_list_page)
         self.detail_page.setParent(self.stacked_widget)
         
