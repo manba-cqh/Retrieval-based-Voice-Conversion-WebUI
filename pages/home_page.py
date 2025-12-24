@@ -1550,6 +1550,7 @@ class HomePage(BasePage):
         grid_widget.setLayout(grid_container)
         self.scroll_area.setWidget(grid_widget)
         list_layout.addWidget(self.scroll_area)
+        self.scroll_area.hide()
         
         self.stacked_widget.addWidget(self.list_page)
         
@@ -1567,7 +1568,8 @@ class HomePage(BasePage):
             }
         """)
         list_layout.addWidget(self.loading_label)
-        self.loading_label.hide()
+
+        list_layout.addStretch()
         
         # 异步任务线程
         self.load_thread = None
@@ -1674,11 +1676,6 @@ class HomePage(BasePage):
             self.filtered_models = []
             self.update_model_grid()
             return
-        
-        # 显示加载提示，隐藏网格区域
-        self.loading_label.show()
-        if hasattr(self, 'scroll_area'):
-            self.scroll_area.hide()
         
         # 创建异步任务
         async def fetch_models():
