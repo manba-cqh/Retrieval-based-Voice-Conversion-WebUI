@@ -528,8 +528,34 @@ class ModelDetailPage(QWidget):
         # 信息行
         info_row = QHBoxLayout()
         
+        # 获取模型信息
+        category = self.model_data.get("category", "")
+        category_name = self.model_data.get("category_name", "")
+        if not category_name and category:
+            # 如果没有category_name，从category字段判断
+            categories = [cat.strip() for cat in category.split(";")]
+            if "官方音色" in categories:
+                category_name = "官方音色"
+            elif "免费音色" in categories:
+                category_name = "免费音色"
+            else:
+                category_name = category.split(";")[0].strip() if category else "未知"
+        
+        price = self.model_data.get("price", 0.0)
+        if not isinstance(price, (int, float)):
+            try:
+                price = float(price)
+            except (ValueError, TypeError):
+                price = 0.0
+        
+        version = self.model_data.get("version", "V1")
+        sample_rate = self.model_data.get("sample_rate", "48K")
+        
         info_text = QLabel(f"""
-价格: {self.model_data.get("price", 0)}<br>
+种类: {category_name}<br>
+价格: {price}<br>
+版本: {version}<br>
+采样率: {sample_rate}
         """)
         info_text.setStyleSheet("color: #cccccc; font-size: 14px;")
         info_row.addWidget(info_text)
