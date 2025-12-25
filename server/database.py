@@ -36,11 +36,13 @@ def init_db():
 def _run_migrations():
     """运行数据库迁移"""
     try:
-        # 检查 users 表是否存在 available_models 列
         from sqlalchemy import inspect, text
+        from server.models import TrialRecord
         inspector = inspect(engine)
+        table_names = inspector.get_table_names()
         
-        if "users" in inspector.get_table_names():
+        # 检查 users 表是否存在 available_models 列
+        if "users" in table_names:
             # 表已存在，检查列
             columns = [col["name"] for col in inspector.get_columns("users")]
             
@@ -51,6 +53,13 @@ def _run_migrations():
                     conn.execute(text("ALTER TABLE users ADD COLUMN available_models TEXT"))
                     conn.commit()
                 print("迁移完成：已添加 available_models 列")
+        
+        # 检查 trial_records 表是否存在
+        if "trial_records" not in table_names:
+            print("检测到数据库需要迁移：创建 trial_records 表...")
+            # 创建表
+            TrialRecord.__table__.create(bind=engine, checkfirst=True)
+            print("迁移完成：已创建 trial_records 表")
     except Exception as e:
         # 如果迁移失败，记录错误但不阻止启动
         print(f"数据库迁移警告: {e}")

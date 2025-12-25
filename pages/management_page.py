@@ -11,7 +11,9 @@ from PyQt6.QtGui import QFont, QIcon, QPixmap, QMovie
 
 from .base_page import BasePage
 from api.auth import auth_api
+from api.models import models_api
 from .home_page import ModelCard, ModelDetailPage
+import asyncio
 
 
 class ManagementPage(BasePage):
@@ -24,7 +26,8 @@ class ManagementPage(BasePage):
         self.current_category = "全部音色"  # 当前选中的分类
         self.current_model = None  # 当前查看的模型
         self.setup_content()
-        self.load_models()  # 加载模型数据
+        # 不在初始化时加载模型，等待登录成功后再加载
+        # self.load_models()  # 加载模型数据
     
     def setup_content(self):
         """设置管理页面内容"""
@@ -320,15 +323,21 @@ class ManagementPage(BasePage):
             is_free_model = "免费音色" in categories
             
             # 对于免费音色，只要本地存在就显示，不需要在用户的可用列表中
-            # 对于非免费音色（官方音色等），必须同时在用户的可用列表中
+            # 对于非免费音色（官方音色等），必须同时在用户的可用列表中或正在试用中
             if not is_free_model:
-                # 非免费音色，需要检查用户的可用模型列表
+                result = self._check_model_trial_status(model_uid)
+                # 非免费音色，需要检查用户的可用模型列表或试用状态
                 if available_model_uids is None:
-                    # 用户未登录或没有可用模型列表，不显示非免费音色
-                    continue
+                    # 用户未登录或没有可用模型列表，检查是否有试用
+                    has_trial = self._check_model_trial_status(model_uid)
+                    if not has_trial:
+                        continue
                 elif not model_uid or model_uid not in available_model_uids:
-                    # 模型不在用户的可用列表中，跳过
-                    continue
+                    # 模型不在用户的可用列表中，检查是否有试用
+                    has_trial = self._check_model_trial_status(model_uid)
+                    if not has_trial:
+                        # 既不在可用列表，也没有试用，跳过
+                        continue
             
             # 构建模型数据（兼容管理页面的数据结构）
             model_data = {
@@ -392,6 +401,64 @@ class ManagementPage(BasePage):
             print(f"获取用户可用模型列表失败: {e}")
             # 出错时返回None，不显示任何模型
             return None
+    
+    def _check_model_trial_status(self, model_uid):
+        """
+        检查模型是否有正在进行的试用（直接调用服务器API查询数据库）
+        
+        Args:
+            model_uid: 模型UUID
+        
+        Returns:
+            bool: 如果有正在进行的试用返回True，否则返回False
+        """
+        if not model_uid:
+            return False
+        
+        # 检查登录状态
+        if not auth_api.is_logged_in():
+            return False
+        
+        try:
+            # 直接调用服务器API检查试用状态
+            # 使用 asyncio.run() 在同步方法中运行异步代码
+            async def check_trial():
+                return await models_api.get_trial_status(model_uid)
+            
+            # 尝试获取当前事件循环，如果没有则创建新的
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 如果事件循环正在运行，不能使用 run_until_complete
+                    # 这种情况下返回 False（应该不会发生，因为这是在同步方法中调用）
+                    print("警告: 事件循环正在运行，无法同步调用API")
+                    return False
+            except RuntimeError:
+                # 没有事件循环，创建新的
+                pass
+            
+            # 运行异步函数
+            result = asyncio.run(check_trial())
+            
+            # 处理API返回结果（API客户端会包装响应）
+            if result.get("success"):
+                data = result.get("data", {})
+                # 如果data中还有success字段，说明是服务器返回的完整响应，需要再取一次data
+                if isinstance(data, dict) and "success" in data and "data" in data:
+                    data = data.get("data", {})
+                
+                is_active = data.get("is_active", False)
+                remaining_seconds = data.get("remaining_seconds", 0)
+                
+                if is_active and remaining_seconds > 0:
+                    return True
+            
+            return False
+        except Exception as e:
+            print(f"检查模型试用状态失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     def on_category_changed(self, category):
         """分类改变"""

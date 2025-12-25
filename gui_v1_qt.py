@@ -315,10 +315,13 @@ class MainWindow(QMainWindow):
             self.current_username = username
             # 切换到主应用界面
             self.main_stack.setCurrentWidget(self.app_container)
-            # 登录成功后，加载主页模型数据
+            # 登录成功后，加载主页和管理页面的模型数据
             if "home" in self.pages:
-                print("登录成功，开始加载模型列表...")
+                print("登录成功，开始加载主页模型列表...")
                 self.pages["home"].load_models()
+            if "management" in self.pages:
+                print("登录成功，开始加载管理页面模型列表...")
+                self.pages["management"].load_models()
         else:
             # 如果API调用失败，这里不应该被调用
             from PyQt6.QtWidgets import QMessageBox

@@ -423,6 +423,102 @@ class ModelsAPI(AsyncAPIClient):
                 "success": False,
                 "message": f"下载失败: {str(e)}"
             }
+    
+    async def start_trial(self, uuid: str) -> Dict[str, Any]:
+        """
+        开始模型试用
+        
+        Args:
+            uuid: 模型UUID
+        
+        Returns:
+            试用结果字典
+        """
+        base_url = self._get_url(API_MODELS)
+        if base_url.endswith('/'):
+            base_url = base_url.rstrip('/')
+        url = f"{base_url}/by-uuid/{uuid}/start-trial"
+        headers = self._get_headers()
+        
+        try:
+            result = await self.post(url, headers=headers)
+            return result
+        except httpx.HTTPStatusError as e:
+            error_msg = "启动试用失败"
+            try:
+                error_data = e.response.json()
+                error_msg = error_data.get("detail", error_msg)
+            except:
+                error_msg = f"启动试用失败: {e.response.status_code}"
+            return {"success": False, "message": error_msg}
+        except Exception as e:
+            return {"success": False, "message": f"启动试用失败: {str(e)}"}
+    
+    async def get_trial_status(self, uuid: str) -> Dict[str, Any]:
+        """
+        获取模型的试用状态
+        
+        Args:
+            uuid: 模型UUID
+        
+        Returns:
+            试用状态字典
+        """
+        base_url = self._get_url(API_MODELS)
+        if base_url.endswith('/'):
+            base_url = base_url.rstrip('/')
+        url = f"{base_url}/by-uuid/{uuid}/trial-status"
+        headers = self._get_headers()
+        
+        try:
+            result = await self.get(url, headers=headers)
+            return result
+        except httpx.HTTPStatusError as e:
+            error_msg = "获取试用状态失败"
+            try:
+                error_data = e.response.json()
+                error_msg = error_data.get("detail", error_msg)
+            except:
+                error_msg = f"获取试用状态失败: {e.response.status_code}"
+            return {"success": False, "message": error_msg}
+        except Exception as e:
+            return {"success": False, "message": f"获取试用状态失败: {str(e)}"}
+    
+    async def get_user_trials(self) -> Dict[str, Any]:
+        """
+        获取用户的所有试用记录
+        
+        Returns:
+            试用记录列表
+        """
+        base_url = self._get_url(API_MODELS)
+        if base_url.endswith('/'):
+            base_url = base_url.rstrip('/')
+        url = f"{base_url}/trials"
+        headers = self._get_headers()
+        
+        try:
+            result = await self.get(url, headers=headers)
+            # API客户端会将服务器返回的JSON包装在data中
+            # 服务器返回: {"success": True, "data": {"trials": [...]}}
+            # 客户端包装后: {"success": True, "data": {"success": True, "data": {"trials": [...]}}}
+            # 需要解包一层
+            if result.get("success") and isinstance(result.get("data"), dict):
+                server_response = result.get("data", {})
+                # 如果服务器响应中也有success字段，说明是完整的服务器响应，直接返回
+                if "success" in server_response:
+                    return server_response
+            return result
+        except httpx.HTTPStatusError as e:
+            error_msg = "获取试用记录失败"
+            try:
+                error_data = e.response.json()
+                error_msg = error_data.get("detail", error_msg)
+            except:
+                error_msg = f"获取试用记录失败: {e.response.status_code}"
+            return {"success": False, "message": error_msg}
+        except Exception as e:
+            return {"success": False, "message": f"获取试用记录失败: {str(e)}"}
 
 
 # 全局API实例

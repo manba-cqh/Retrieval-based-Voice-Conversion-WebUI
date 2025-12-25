@@ -1,8 +1,8 @@
 """数据库模型"""
 from typing import List
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Float, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, Float, ForeignKey, Text, Index
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timedelta
 from .database import Base
 
 
@@ -22,6 +22,7 @@ class User(Base):
     
     # 关联关系
     models = relationship("Model", back_populates="owner")
+    trial_records = relationship("TrialRecord", back_populates="user")
     
     def get_available_model_uids(self) -> List[str]:
         """获取用户可用模型的UUID列表"""
@@ -89,4 +90,60 @@ class Model(Base):
     
     # 关联关系
     owner = relationship("User", back_populates="models")
+    # 使用 model_uid 字段关联，而不是外键
+    trial_records = relationship(
+        "TrialRecord",
+        back_populates="model",
+        primaryjoin="Model.uid == TrialRecord.model_uid",
+        foreign_keys="[TrialRecord.model_uid]",
+        viewonly=True  # 只读关系，因为不是标准外键
+    )
+
+
+class TrialRecord(Base):
+    """试用记录表 - 存储收费模型的试用记录"""
+    __tablename__ = "trial_records"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    model_uid = Column(String(64), nullable=False, index=True)  # 模型UUID
+    model_name = Column(String(200), nullable=True)  # 模型名称（冗余字段，方便查询）
+    start_time = Column(DateTime, nullable=False, default=datetime.utcnow)  # 试用开始时间
+    end_time = Column(DateTime, nullable=False)  # 试用结束时间
+    duration_seconds = Column(Integer, default=3600)  # 试用时长（秒），默认1小时
+    is_active = Column(Boolean, default=True, index=True)  # 是否正在试用中
+    trial_count = Column(Integer, default=1)  # 试用次数（同一模型）
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # 关联关系
+    user = relationship("User", back_populates="trial_records")
+    # 使用 model_uid 字段关联，而不是外键
+    model = relationship(
+        "Model",
+        back_populates="trial_records",
+        primaryjoin="TrialRecord.model_uid == Model.uid",
+        foreign_keys="[TrialRecord.model_uid]",
+        viewonly=True  # 只读关系，因为不是标准外键
+    )
+    
+    # 复合索引：用于快速查询用户的活跃试用
+    __table_args__ = (
+        Index('idx_user_model_active', 'user_id', 'model_uid', 'is_active'),
+    )
+    
+    def get_remaining_seconds(self) -> int:
+        """获取剩余试用时间（秒）"""
+        if not self.is_active:
+            return 0
+        now = datetime.utcnow()
+        if now >= self.end_time:
+            return 0
+        return int((self.end_time - now).total_seconds())
+    
+    def is_expired(self) -> bool:
+        """检查试用是否已过期"""
+        if not self.is_active:
+            return True
+        return datetime.utcnow() >= self.end_time
 

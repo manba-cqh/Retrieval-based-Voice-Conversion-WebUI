@@ -266,6 +266,15 @@ class ModelDetailPage(QWidget):
         self.trial_seconds = 0
         self.trial_active = False
         
+        # 试用线程相关
+        self.trial_thread = None
+        self.trial_worker = None
+        self.check_status_thread = None
+        self.check_status_worker = None
+        self.sync_status_thread = None
+        self.sync_status_worker = None
+        self.trial_sync_timer = None  # 定期同步服务器状态的定时器
+        
         # 音频播放相关
         self.audio_player = None
         self.audio_output = None
@@ -293,34 +302,97 @@ class ModelDetailPage(QWidget):
         self.find_audio_file()
         
         self.setup_ui()
+        
+        # 页面加载后检查试用状态（延迟一点，确保UI元素已创建）
+        QTimer.singleShot(100, self._check_trial_status)
     
     def on_back_clicked(self):
         """返回按钮点击"""
-        # 清理下载线程（如果存在）
+        # 清理所有线程
         self._cleanup_download_thread()
+        self._cleanup_audio_download_thread()
+        self._cleanup_trial_thread()
+        self._cleanup_check_status_thread()
+        self._cleanup_sync_status_thread()
+        # 停止定时器
+        if hasattr(self, 'trial_sync_timer') and self.trial_sync_timer:
+            self.trial_sync_timer.stop()
+            self.trial_sync_timer = None
+        if hasattr(self, 'trial_timer') and self.trial_timer:
+            self.trial_timer.stop()
         self.back_clicked.emit()
     
     def _cleanup_download_thread(self):
         """清理下载线程资源"""
-        if self.download_thread and self.download_thread.isRunning():
+        if hasattr(self, 'download_thread') and self.download_thread:
             try:
-                if self.download_worker:
-                    self.download_worker.finished.disconnect()
-                    self.download_worker.error.disconnect()
-                self.download_thread.quit()
-                self.download_thread.wait(3000)  # 等待最多3秒
-                if self.download_thread.isRunning():
-                    self.download_thread.terminate()
-                    self.download_thread.wait()
+                if hasattr(self, 'download_worker') and self.download_worker:
+                    try:
+                        self.download_worker.finished.disconnect()
+                        self.download_worker.error.disconnect()
+                    except:
+                        pass
+                
+                if hasattr(self.download_thread, 'isRunning') and self.download_thread.isRunning():
+                    self.download_thread.quit()
+                    if not self.download_thread.wait(3000):  # 等待最多3秒
+                        if hasattr(self.download_thread, 'isRunning') and self.download_thread.isRunning():
+                            self.download_thread.terminate()
+                            self.download_thread.wait()
+            except RuntimeError:
+                # 对象已被删除
+                pass
             except Exception as e:
                 print(f"清理下载线程时出错: {e}")
             finally:
-                if self.download_thread:
-                    self.download_thread.deleteLater()
-                if self.download_worker:
-                    self.download_worker.deleteLater()
+                if hasattr(self, 'download_thread') and self.download_thread:
+                    try:
+                        self.download_thread.deleteLater()
+                    except:
+                        pass
+                if hasattr(self, 'download_worker') and self.download_worker:
+                    try:
+                        self.download_worker.deleteLater()
+                    except:
+                        pass
                 self.download_thread = None
                 self.download_worker = None
+    
+    def _cleanup_audio_download_thread(self):
+        """清理音频下载线程资源"""
+        if hasattr(self, 'audio_download_thread') and self.audio_download_thread:
+            try:
+                if hasattr(self, 'audio_download_worker') and self.audio_download_worker:
+                    try:
+                        self.audio_download_worker.finished.disconnect()
+                        self.audio_download_worker.error.disconnect()
+                    except:
+                        pass
+                
+                if hasattr(self.audio_download_thread, 'isRunning') and self.audio_download_thread.isRunning():
+                    self.audio_download_thread.quit()
+                    if not self.audio_download_thread.wait(3000):  # 等待最多3秒
+                        if hasattr(self.audio_download_thread, 'isRunning') and self.audio_download_thread.isRunning():
+                            self.audio_download_thread.terminate()
+                            self.audio_download_thread.wait()
+            except RuntimeError:
+                # 对象已被删除
+                pass
+            except Exception as e:
+                print(f"清理音频下载线程时出错: {e}")
+            finally:
+                if hasattr(self, 'audio_download_thread') and self.audio_download_thread:
+                    try:
+                        self.audio_download_thread.deleteLater()
+                    except:
+                        pass
+                if hasattr(self, 'audio_download_worker') and self.audio_download_worker:
+                    try:
+                        self.audio_download_worker.deleteLater()
+                    except:
+                        pass
+                self.audio_download_thread = None
+                self.audio_download_worker = None
     
     def setup_ui(self):
         """设置详情页面UI"""
@@ -649,19 +721,35 @@ class ModelDetailPage(QWidget):
         else:
             # 检查是否为免费模型
             category = self.model_data.get("category", "")
+            price = self.model_data.get("price", 0) or 0
             is_free_model = False
             if category:
                 categories = [cat.strip() for cat in category.split(";")]
                 is_free_model = "免费音色" in categories
+            
+            # 判断是否为收费模型（价格大于0或不是免费音色）
+            is_paid_model = price > 0 or (not is_free_model and category and "官方音色" in categories)
+            
+            # 检查是否有正在进行的试用
+            has_active_trial = False
+            if self.home_page and hasattr(self.home_page, 'user_trials'):
+                model_uid = self.model_data.get("uid")
+                if model_uid:
+                    trial_data = self.home_page.user_trials.get(model_uid)
+                    if trial_data and trial_data.get("is_active", False):
+                        remaining_seconds = trial_data.get("remaining_seconds", 0)
+                        if remaining_seconds > 0:
+                            has_active_trial = True
             
             # 如果不是免费模型，显示试用区块
             if not is_free_model:
                 trial_section = self.create_trial_section()
                 layout.addWidget(trial_section, 5)
             
-            # 下载
-            self.download_section = self.create_download_section()
-            layout.addWidget(self.download_section, 5)
+            # 下载按钮：免费模型始终显示，收费模型只在试用中显示
+            if not is_paid_model or has_active_trial:
+                self.download_section = self.create_download_section()
+                layout.addWidget(self.download_section, 5)
         
         layout.addStretch()
         return panel
@@ -1168,31 +1256,437 @@ class ModelDetailPage(QWidget):
     
     def on_trial_clicked(self):
         """试用按钮点击"""
-        if not self.trial_active:
+        # 禁用按钮，显示"启动中..."
+        self.trial_btn.setEnabled(False)
+        self.trial_btn.setText("启动中...")
+        
+        # 获取模型UUID
+        model_uuid = self.model_data.get("uid")
+        if not model_uuid:
+            QMessageBox.warning(self, "错误", "无法获取模型UUID")
+            self.trial_btn.setEnabled(True)
+            self.trial_btn.setText("开始试用")
+            return
+        
+        # 异步调用服务器API
+        async def start_trial():
+            return await models_api.start_trial(model_uuid)
+        
+        # 使用异步工具运行
+        self.trial_thread, self.trial_worker = run_async(start_trial())
+        
+        # 连接信号
+        self.trial_worker.finished.connect(self._on_trial_started)
+        self.trial_worker.error.connect(self._on_trial_error)
+        
+        # 启动线程
+        self.trial_thread.start()
+    
+    def _on_trial_started(self, result):
+        """试用开始成功回调"""
+        # 清理线程
+        self._cleanup_trial_thread()
+        
+        if result.get("success"):
+            data = result.get("data", {})
+            remaining_seconds = data.get("remaining_seconds", 3600)
+            
+            # 更新状态
             self.trial_active = True
-            self.trial_seconds = 3600  # 60分钟
+            self.trial_seconds = remaining_seconds
+            
+            # 更新主页的试用记录（如果可用）
+            if self.home_page and hasattr(self.home_page, 'user_trials'):
+                model_uid = self.model_data.get("uid")
+                if model_uid:
+                    # 更新或添加试用记录
+                    self.home_page.user_trials[model_uid] = {
+                        "model_uid": model_uid,
+                        "model_name": self.model_data.get("name", ""),
+                        "is_active": True,
+                        "remaining_seconds": remaining_seconds,
+                        "start_time": data.get("start_time"),
+                        "end_time": data.get("end_time")
+                    }
+            
+            # 启动本地倒计时
             self.trial_timer.start(1000)  # 每秒更新
+            
+            # 启动服务器同步定时器（每30秒同步一次）
+            if not self.trial_sync_timer:
+                self.trial_sync_timer = QTimer()
+                self.trial_sync_timer.timeout.connect(self._sync_trial_status)
+            self.trial_sync_timer.start(30000)  # 30秒
+            
+            # 更新UI
             self.trial_btn.setText("试用中...")
             self.trial_btn.setEnabled(False)
             self.trial_time_label.setVisible(True)
             self.update_trial_time()
+            
+            # 如果是收费模型，显示下载按钮
+            category = self.model_data.get("category", "")
+            price = self.model_data.get("price", 0) or 0
+            is_free_model = "免费音色" in (category.split(";") if category else [])
+            is_paid_model = price > 0 or (not is_free_model and category and "官方音色" in (category.split(";") if category else []))
+            
+            if is_paid_model:
+                # 检查下载按钮是否已存在
+                if not hasattr(self, 'download_section') or not self.download_section:
+                    # 找到右侧面板的布局
+                    # 试用按钮的层级：trial_btn -> trial_layout -> trial_section -> right_panel_layout -> right_panel
+                    trial_section = self.trial_btn.parent().parent()
+                    if trial_section:
+                        right_panel = trial_section.parent()
+                        if right_panel and hasattr(right_panel, 'layout'):
+                            right_layout = right_panel.layout()
+                            if right_layout:
+                                self.download_section = self.create_download_section()
+                                # 找到试用区块的位置，在其后插入
+                                trial_index = -1
+                                for i in range(right_layout.count()):
+                                    item = right_layout.itemAt(i)
+                                    if item and item.widget() == trial_section:
+                                        trial_index = i
+                                        break
+                                if trial_index >= 0:
+                                    right_layout.insertWidget(trial_index + 1, self.download_section, 5)
+                                else:
+                                    right_layout.addWidget(self.download_section, 5)
+                else:
+                    # 下载按钮已存在，确保可见
+                    self.download_section.setVisible(True)
         else:
-            QMessageBox.information(self, "提示", "试用已在进行中")
+            # 显示错误信息
+            error_msg = result.get("message", "启动试用失败")
+            QMessageBox.warning(self, "错误", error_msg)
+            self.trial_btn.setEnabled(True)
+            self.trial_btn.setText("开始试用")
+    
+    def _on_trial_error(self, error_msg):
+        """试用启动错误回调"""
+        QMessageBox.warning(self, "错误", f"启动试用失败: {error_msg}")
+        self.trial_btn.setEnabled(True)
+        self.trial_btn.setText("开始试用")
+        self._cleanup_trial_thread()
+    
+    def _check_trial_status(self):
+        """检查试用状态（页面加载时）"""
+        # 先清理之前的检查线程（如果存在）
+        self._cleanup_check_status_thread()
+        
+        # 获取模型UUID
+        model_uuid = self.model_data.get("uid")
+        if not model_uuid:
+            return
+        
+        # 优先使用主页已加载的试用记录（如果可用）
+        if self.home_page and hasattr(self.home_page, 'user_trials'):
+            trial_data = self.home_page.user_trials.get(model_uuid)
+            if trial_data:
+                # 使用本地已加载的数据
+                is_active = trial_data.get("is_active", False)
+                remaining_seconds = trial_data.get("remaining_seconds", 0)
+                
+                # 构造与API返回格式一致的数据结构
+                result = {
+                    "success": True,
+                    "data": {
+                        "has_trialed": True,
+                        "is_active": is_active,
+                        "remaining_seconds": remaining_seconds
+                    }
+                }
+                
+                # 直接调用回调处理
+                self._on_trial_status_checked(result)
+                
+                # 如果数据已过期，仍然同步一次服务器状态
+                if is_active and remaining_seconds > 0:
+                    return  # 使用本地数据，不需要再调用API
+                # 如果数据已过期或不存在，继续调用API更新
+        
+        # 如果没有本地数据或需要更新，异步检查试用状态
+        async def check():
+            return await models_api.get_trial_status(model_uuid)
+        
+        # 使用异步工具运行
+        self.check_status_thread, self.check_status_worker = run_async(check())
+        
+        # 连接信号
+        self.check_status_worker.finished.connect(self._on_trial_status_checked)
+        self.check_status_worker.error.connect(lambda e: print(f"检查试用状态失败: {e}"))
+        
+        # 启动线程
+        self.check_status_thread.start()
+    
+    def _on_trial_status_checked(self, result):
+        """试用状态检查回调"""
+        # 清理检查线程
+        self._cleanup_check_status_thread()
+        
+        if result.get("success"):
+            data = result.get("data", {})
+            has_trialed = data.get("has_trialed", False)
+            is_active = data.get("is_active", False)
+            remaining_seconds = data.get("remaining_seconds", 0)
+            
+            if is_active:
+                # 有正在进行的试用
+                self.trial_active = True
+                self.trial_seconds = remaining_seconds
+                
+                # 启动本地倒计时
+                self.trial_timer.start(1000)
+                
+                # 启动服务器同步定时器
+                if not self.trial_sync_timer:
+                    self.trial_sync_timer = QTimer()
+                    self.trial_sync_timer.timeout.connect(self._sync_trial_status)
+                self.trial_sync_timer.start(30000)
+                
+                # 更新UI（确保UI元素已创建）
+                def update_ui():
+                    if hasattr(self, 'trial_btn') and self.trial_btn:
+                        self.trial_btn.setText("试用中...")
+                        self.trial_btn.setEnabled(False)
+                    if hasattr(self, 'trial_time_label') and self.trial_time_label:
+                        self.trial_time_label.setVisible(True)
+                    self.update_trial_time()
+                    
+                    # 如果试用中且是收费模型，显示下载按钮（如果之前没有显示）
+                    if not hasattr(self, 'download_section') or not self.download_section:
+                        # 检查是否为收费模型
+                        category = self.model_data.get("category", "")
+                        price = self.model_data.get("price", 0) or 0
+                        is_free_model = "免费音色" in (category.split(";") if category else [])
+                        is_paid_model = price > 0 or (not is_free_model and category and "官方音色" in category.split(";"))
+                        
+                        if is_paid_model:
+                            # 收费模型试用中，显示下载按钮
+                            # 再次检查 trial_btn 是否存在（可能在延迟执行时被删除）
+                            if hasattr(self, 'trial_btn') and self.trial_btn:
+                                try:
+                                    # 找到试用区块的父布局（右侧面板）
+                                    trial_section = self.trial_btn.parent().parent()
+                                    if trial_section:
+                                        right_panel = trial_section.parent()
+                                        if right_panel and hasattr(right_panel, 'layout'):
+                                            right_layout = right_panel.layout()
+                                            if right_layout:
+                                                self.download_section = self.create_download_section()
+                                                # 找到试用区块的位置，在其后插入
+                                                trial_index = -1
+                                                for i in range(right_layout.count()):
+                                                    item = right_layout.itemAt(i)
+                                                    if item and item.widget() == trial_section:
+                                                        trial_index = i
+                                                        break
+                                                if trial_index >= 0:
+                                                    right_layout.insertWidget(trial_index + 1, self.download_section, 5)
+                                                else:
+                                                    right_layout.addWidget(self.download_section, 5)
+                                except AttributeError:
+                                    # trial_btn 或其父对象不存在，忽略错误
+                                    pass
+                
+                # 如果UI元素还没创建，延迟更新
+                if hasattr(self, 'trial_btn') and self.trial_btn:
+                    update_ui()
+                else:
+                    # UI元素可能还没创建，延迟100ms再更新
+                    QTimer.singleShot(100, update_ui)
+            elif has_trialed:
+                # 已试用过，禁用按钮
+                def update_ui_disabled():
+                    if hasattr(self, 'trial_btn') and self.trial_btn:
+                        self.trial_btn.setText("已试用")
+                        self.trial_btn.setEnabled(False)
+                    if hasattr(self, 'trial_time_label') and self.trial_time_label:
+                        self.trial_time_label.setVisible(False)
+                
+                if hasattr(self, 'trial_btn') and self.trial_btn:
+                    update_ui_disabled()
+                else:
+                    QTimer.singleShot(100, update_ui_disabled)
+    
+    def _sync_trial_status(self):
+        """同步服务器试用状态"""
+        # 先清理之前的同步线程（如果存在）
+        self._cleanup_sync_status_thread()
+        
+        # 获取模型UUID
+        model_uuid = self.model_data.get("uid")
+        if not model_uuid:
+            return
+        
+        # 异步同步状态
+        async def sync():
+            return await models_api.get_trial_status(model_uuid)
+        
+        # 使用异步工具运行
+        self.sync_status_thread, self.sync_status_worker = run_async(sync())
+        
+        # 连接信号
+        self.sync_status_worker.finished.connect(self._on_trial_status_synced)
+        self.sync_status_worker.error.connect(lambda e: print(f"同步试用状态失败: {e}"))
+        
+        # 启动线程
+        self.sync_status_thread.start()
+    
+    def _on_trial_status_synced(self, result):
+        """同步状态回调"""
+        # 清理同步线程
+        self._cleanup_sync_status_thread()
+        
+        if result.get("success"):
+            data = result.get("data", {})
+            if data.get("is_active"):
+                # 更新剩余时间
+                remaining = data.get("remaining_seconds", 0)
+                self.trial_seconds = remaining
+                self.update_trial_time()
+            else:
+                # 试用已过期
+                self._end_trial()
+    
+    def _end_trial(self):
+        """结束试用"""
+        # 停止定时器
+        if self.trial_timer:
+            self.trial_timer.stop()
+        if self.trial_sync_timer:
+            self.trial_sync_timer.stop()
+        
+        # 更新状态
+        self.trial_active = False
+        self.trial_seconds = 0
+        
+        # 更新UI
+        if hasattr(self, 'trial_btn') and self.trial_btn:
+            self.trial_btn.setText("已试用")
+            self.trial_btn.setEnabled(False)
+        if hasattr(self, 'trial_time_label') and self.trial_time_label:
+            self.trial_time_label.setVisible(False)
     
     def update_trial_time(self):
         """更新试用时间"""
         if self.trial_seconds > 0:
             minutes = self.trial_seconds // 60
             seconds = self.trial_seconds % 60
-            self.trial_time_label.setText(f"剩余时间: {minutes:02d}:{seconds:02d}")
+            if hasattr(self, 'trial_time_label') and self.trial_time_label:
+                self.trial_time_label.setText(f"剩余时间: {minutes:02d}:{seconds:02d}")
+                self.trial_time_label.setVisible(True)
             self.trial_seconds -= 1
         else:
-            self.trial_timer.stop()
-            self.trial_active = False
-            self.trial_btn.setText("开始试用")
-            self.trial_btn.setEnabled(True)
-            self.trial_time_label.setVisible(False)
+            # 时间到了
+            self._end_trial()
             QMessageBox.information(self, "提示", "试用时间已到")
+    
+    def _cleanup_trial_thread(self):
+        """清理试用相关线程"""
+        if self.trial_thread:
+            try:
+                if self.trial_worker:
+                    try:
+                        self.trial_worker.finished.disconnect()
+                        self.trial_worker.error.disconnect()
+                    except:
+                        pass
+                
+                if hasattr(self.trial_thread, 'isRunning') and self.trial_thread.isRunning():
+                    self.trial_thread.quit()
+                    if not self.trial_thread.wait(3000):
+                        self.trial_thread.terminate()
+                        self.trial_thread.wait()
+            except RuntimeError:
+                # 对象已被删除
+                pass
+            except Exception as e:
+                print(f"清理试用线程时出错: {e}")
+            finally:
+                if self.trial_thread:
+                    try:
+                        self.trial_thread.deleteLater()
+                    except:
+                        pass
+                if self.trial_worker:
+                    try:
+                        self.trial_worker.deleteLater()
+                    except:
+                        pass
+                self.trial_thread = None
+                self.trial_worker = None
+    
+    def _cleanup_check_status_thread(self):
+        """清理检查状态线程"""
+        if self.check_status_thread:
+            try:
+                if self.check_status_worker:
+                    try:
+                        self.check_status_worker.finished.disconnect()
+                        self.check_status_worker.error.disconnect()
+                    except:
+                        pass
+                
+                if hasattr(self.check_status_thread, 'isRunning') and self.check_status_thread.isRunning():
+                    self.check_status_thread.quit()
+                    if not self.check_status_thread.wait(3000):
+                        self.check_status_thread.terminate()
+                        self.check_status_thread.wait()
+            except RuntimeError:
+                # 对象已被删除
+                pass
+            except Exception as e:
+                print(f"清理检查状态线程时出错: {e}")
+            finally:
+                if self.check_status_thread:
+                    try:
+                        self.check_status_thread.deleteLater()
+                    except:
+                        pass
+                if self.check_status_worker:
+                    try:
+                        self.check_status_worker.deleteLater()
+                    except:
+                        pass
+                self.check_status_thread = None
+                self.check_status_worker = None
+    
+    def _cleanup_sync_status_thread(self):
+        """清理同步状态线程"""
+        if self.sync_status_thread:
+            try:
+                if self.sync_status_worker:
+                    try:
+                        self.sync_status_worker.finished.disconnect()
+                        self.sync_status_worker.error.disconnect()
+                    except:
+                        pass
+                
+                if hasattr(self.sync_status_thread, 'isRunning') and self.sync_status_thread.isRunning():
+                    self.sync_status_thread.quit()
+                    if not self.sync_status_thread.wait(3000):
+                        self.sync_status_thread.terminate()
+                        self.sync_status_thread.wait()
+            except RuntimeError:
+                # 对象已被删除
+                pass
+            except Exception as e:
+                print(f"清理同步状态线程时出错: {e}")
+            finally:
+                if self.sync_status_thread:
+                    try:
+                        self.sync_status_thread.deleteLater()
+                    except:
+                        pass
+                if self.sync_status_worker:
+                    try:
+                        self.sync_status_worker.deleteLater()
+                    except:
+                        pass
+                self.sync_status_thread = None
+                self.sync_status_worker = None
     
     def create_use_section(self):
         """创建使用区块（已购买/已下载）"""
@@ -1514,6 +2008,7 @@ class HomePage(BasePage):
         self.current_category = "全部"  # 当前选中的分类
         self.current_model = None  # 当前查看的模型
         self.local_model_uids = set()  # 本地模型的uid集合（用于快速查找）
+        self.user_trials = {}  # 用户的试用记录 {model_uid: trial_data}
         self.setup_content()
         # 不在初始化时加载模型，等待登录成功后再加载
         # self.load_models()  # 加载模型数据
@@ -1711,6 +2206,9 @@ class HomePage(BasePage):
             self.update_model_grid()
             return
         
+        # 登录成功后，加载用户的试用记录
+        self._load_user_trials()
+        
         # 创建异步任务
         async def fetch_models():
             """异步获取模型列表（分页获取所有模型）"""
@@ -1826,6 +2324,64 @@ class HomePage(BasePage):
                         self.local_model_uids.add(model_uid)
                 except Exception as e:
                     print(f"读取本地模型信息文件失败 {json_path}: {e}")
+    
+    def _load_user_trials(self):
+        """加载用户的试用记录"""
+        if not auth_api.is_logged_in():
+            return
+        
+        # 异步加载试用记录
+        async def fetch_trials():
+            return await models_api.get_user_trials()
+        
+        # 使用异步工具运行
+        self.trials_thread, self.trials_worker = run_async(fetch_trials())
+        self.trials_worker.finished.connect(self._on_trials_loaded)
+        self.trials_worker.error.connect(lambda e: print(f"加载试用记录失败: {e}"))
+        self.trials_thread.start()
+    
+    def _on_trials_loaded(self, result):
+        """试用记录加载完成"""
+        if result.get("success"):
+            # API客户端会将服务器返回的JSON包装在data中
+            # 服务器返回格式: {"success": True, "data": {"trials": [...]}}
+            # 客户端包装后: {"success": True, "data": {"success": True, "data": {"trials": [...]}}}
+            data = result.get("data", {})
+            
+            # 如果data中还有success字段，说明是服务器返回的完整响应，需要再取一次data
+            if isinstance(data, dict) and "success" in data and "data" in data:
+                data = data.get("data", {})
+            
+            trials = data.get("trials", [])
+            
+            # 将试用记录存储到字典中，以model_uid为key
+            self.user_trials = {}
+            for trial in trials:
+                model_uid = trial.get("model_uid")
+                if model_uid:
+                    self.user_trials[model_uid] = trial
+            
+            print(f"已加载 {len(self.user_trials)} 条试用记录")
+            if len(trials) > 0:
+                print(f"试用记录详情: {trials}")
+        else:
+            print(f"加载试用记录失败: {result.get('message', '未知错误')}")
+            print(f"完整响应: {result}")
+        
+        # 清理线程
+        if hasattr(self, 'trials_thread') and self.trials_thread:
+            try:
+                if hasattr(self.trials_thread, 'isRunning') and self.trials_thread.isRunning():
+                    self.trials_thread.quit()
+                    self.trials_thread.wait(3000)
+            except:
+                pass
+            try:
+                self.trials_thread.deleteLater()
+            except:
+                pass
+            self.trials_thread = None
+            self.trials_worker = None
     
     def on_models_load_error(self, error_msg):
         """模型数据加载出错"""

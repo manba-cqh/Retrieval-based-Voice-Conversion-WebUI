@@ -3,11 +3,12 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
+from datetime import datetime, timedelta
 import os
 from pathlib import Path
 from server.database import get_db
-from server.models import Model, User
+from server.models import Model, User, TrialRecord
 from server.schemas import ModelResponse, ModelListResponse, ModelDownloadResponse
 from server.auth import get_current_active_user
 from server.config import settings
@@ -293,6 +294,60 @@ def get_model_audio_by_uuid(
     )
 
 
+@router.get("/trials")
+def get_user_trials(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    获取用户的所有试用记录（包括活跃和已结束的）
+    """
+    # 先更新所有过期试用的状态
+    expired_trials = db.query(TrialRecord).filter(
+        and_(
+            TrialRecord.user_id == current_user.id,
+            TrialRecord.is_active == True
+        )
+    ).all()
+    
+    now = datetime.utcnow()
+    for trial in expired_trials:
+        if trial.is_expired():
+            trial.is_active = False
+    
+    db.commit()
+    
+    # 获取所有试用记录
+    trials = db.query(TrialRecord).filter(
+        TrialRecord.user_id == current_user.id
+    ).order_by(TrialRecord.created_at.desc()).all()
+    
+    trial_list = []
+    for trial in trials:
+        remaining_seconds = trial.get_remaining_seconds() if trial.is_active else 0
+        trial_list.append({
+            "id": trial.id,
+            "model_uid": trial.model_uid,
+            "model_name": trial.model_name,
+            "start_time": trial.start_time.isoformat() if trial.start_time else None,
+            "end_time": trial.end_time.isoformat() if trial.end_time else None,
+            "duration_seconds": trial.duration_seconds,
+            "is_active": trial.is_active,
+            "remaining_seconds": remaining_seconds,
+            "trial_count": trial.trial_count,
+            "created_at": trial.created_at.isoformat() if trial.created_at else None
+        })
+    
+    return {
+        "success": True,
+        "data": {
+            "trials": trial_list,
+            "total": len(trial_list),
+            "active_count": sum(1 for t in trials if t.is_active)
+        }
+    }
+
+
 @router.get("/{model_id}", response_model=ModelResponse)
 def get_model(
     model_id: int,
@@ -403,4 +458,132 @@ def download_model_file(
         filename=model.file_name,
         media_type="application/octet-stream"
     )
+
+
+@router.post("/by-uuid/{uuid}/start-trial")
+def start_trial(
+    uuid: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    开始模型试用
+    """
+    # 查找模型
+    model = db.query(Model).filter(Model.uid == uuid, Model.is_active == True).first()
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="模型不存在"
+        )
+    
+    # 检查是否为免费模型（免费模型不需要试用）
+    if model.price == 0 or model.price is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="免费模型无需试用"
+        )
+    
+    # 检查是否已有正在进行的试用
+    existing_trial = db.query(TrialRecord).filter(
+        and_(
+            TrialRecord.user_id == current_user.id,
+            TrialRecord.model_uid == uuid,
+            TrialRecord.is_active == True
+        )
+    ).first()
+    
+    if existing_trial:
+        # 检查是否已过期
+        if existing_trial.is_expired():
+            existing_trial.is_active = False
+            db.commit()
+        else:
+            # 返回现有试用的剩余时间
+            remaining = existing_trial.get_remaining_seconds()
+            return {
+                "success": True,
+                "message": "试用已在进行中",
+                "data": {
+                    "start_time": existing_trial.start_time.isoformat(),
+                    "end_time": existing_trial.end_time.isoformat(),
+                    "remaining_seconds": remaining
+                }
+            }
+    
+    # 创建新的试用记录
+    duration_seconds = 3600  # 默认1小时
+    start_time = datetime.utcnow()
+    end_time = start_time + timedelta(seconds=duration_seconds)
+    
+    new_trial = TrialRecord(
+        user_id=current_user.id,
+        model_uid=uuid,
+        model_name=model.name,
+        start_time=start_time,
+        end_time=end_time,
+        duration_seconds=duration_seconds,
+        is_active=True,
+        trial_count=1
+    )
+    
+    db.add(new_trial)
+    db.commit()
+    db.refresh(new_trial)
+    
+    return {
+        "success": True,
+        "message": "试用已开始",
+        "data": {
+            "start_time": new_trial.start_time.isoformat(),
+            "end_time": new_trial.end_time.isoformat(),
+            "remaining_seconds": duration_seconds
+        }
+    }
+
+
+@router.get("/by-uuid/{uuid}/trial-status")
+def get_trial_status(
+    uuid: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    获取模型的试用状态
+    """
+    # 查找试用记录
+    trial = db.query(TrialRecord).filter(
+        and_(
+            TrialRecord.user_id == current_user.id,
+            TrialRecord.model_uid == uuid
+        )
+    ).order_by(TrialRecord.created_at.desc()).first()
+    
+    if not trial:
+        return {
+            "success": True,
+            "data": {
+                "has_trialed": False,
+                "is_active": False,
+                "remaining_seconds": 0
+            }
+        }
+    
+    # 检查是否已过期
+    if trial.is_expired() and trial.is_active:
+        trial.is_active = False
+        db.commit()
+    
+    remaining_seconds = trial.get_remaining_seconds() if trial.is_active else 0
+    
+    return {
+        "success": True,
+        "data": {
+            "has_trialed": True,
+            "is_active": trial.is_active,
+            "remaining_seconds": remaining_seconds,
+            "start_time": trial.start_time.isoformat() if trial.start_time else None,
+            "end_time": trial.end_time.isoformat() if trial.end_time else None
+        }
+    }
 
