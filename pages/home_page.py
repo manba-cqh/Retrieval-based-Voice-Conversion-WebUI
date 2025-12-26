@@ -292,6 +292,7 @@ class ModelDetailPage(QWidget):
         # 保存下载区块和使用区块的引用，用于动态切换
         self.download_section = None
         self.use_section = None
+        self.right_panel = None  # 保存右侧面板的引用，用于动态添加下载区块
         
         # 音频下载相关
         self.need_download_audio = False
@@ -702,6 +703,7 @@ class ModelDetailPage(QWidget):
     def create_right_panel(self):
         """创建右侧面板"""
         panel = QWidget()
+        self.right_panel = panel  # 保存右侧面板的引用
         layout = QVBoxLayout(panel)
         layout.setSpacing(20)
         
@@ -1333,24 +1335,40 @@ class ModelDetailPage(QWidget):
             if is_paid_model:
                 # 检查下载按钮是否已存在
                 if not hasattr(self, 'download_section') or not self.download_section:
-                    # 找到右侧面板的布局
-                    # 试用按钮的层级：trial_btn -> trial_layout -> trial_section -> right_panel_layout -> right_panel
-                    trial_section = self.trial_btn.parent().parent()
-                    if trial_section:
-                        right_panel = trial_section.parent()
-                        if right_panel and hasattr(right_panel, 'layout'):
-                            right_layout = right_panel.layout()
-                            if right_layout:
-                                self.download_section = self.create_download_section()
-                                # 找到试用区块的位置，在其后插入
-                                trial_index = -1
+                    # 使用保存的右侧面板引用
+                    if self.right_panel and hasattr(self.right_panel, 'layout'):
+                        right_layout = self.right_panel.layout()
+                        if right_layout:
+                            self.download_section = self.create_download_section()
+                            # 找到试用区块的位置，在其后插入
+                            trial_index = -1
+                            # 试用按钮的层级：trial_btn -> trial_layout -> trial_section
+                            if hasattr(self, 'trial_btn') and self.trial_btn:
+                                try:
+                                    trial_section = self.trial_btn.parent().parent()
+                                    if trial_section:
+                                        for i in range(right_layout.count()):
+                                            item = right_layout.itemAt(i)
+                                            if item and item.widget() == trial_section:
+                                                trial_index = i
+                                                break
+                                except (AttributeError, RuntimeError):
+                                    pass
+                            
+                            if trial_index >= 0:
+                                # 在试用区块后插入下载区块
+                                right_layout.insertWidget(trial_index + 1, self.download_section, 5)
+                            else:
+                                # 如果找不到试用区块，添加到布局末尾（在stretch之前）
+                                # 先移除stretch（如果存在）
+                                stretch_index = -1
                                 for i in range(right_layout.count()):
                                     item = right_layout.itemAt(i)
-                                    if item and item.widget() == trial_section:
-                                        trial_index = i
+                                    if item and item.spacerItem():
+                                        stretch_index = i
                                         break
-                                if trial_index >= 0:
-                                    right_layout.insertWidget(trial_index + 1, self.download_section, 5)
+                                if stretch_index >= 0:
+                                    right_layout.insertWidget(stretch_index, self.download_section, 5)
                                 else:
                                     right_layout.addWidget(self.download_section, 5)
                 else:
@@ -1464,31 +1482,45 @@ class ModelDetailPage(QWidget):
                         
                         if is_paid_model:
                             # 收费模型试用中，显示下载按钮
-                            # 再次检查 trial_btn 是否存在（可能在延迟执行时被删除）
-                            if hasattr(self, 'trial_btn') and self.trial_btn:
-                                try:
-                                    # 找到试用区块的父布局（右侧面板）
-                                    trial_section = self.trial_btn.parent().parent()
-                                    if trial_section:
-                                        right_panel = trial_section.parent()
-                                        if right_panel and hasattr(right_panel, 'layout'):
-                                            right_layout = right_panel.layout()
-                                            if right_layout:
-                                                self.download_section = self.create_download_section()
-                                                # 找到试用区块的位置，在其后插入
-                                                trial_index = -1
-                                                for i in range(right_layout.count()):
-                                                    item = right_layout.itemAt(i)
-                                                    if item and item.widget() == trial_section:
-                                                        trial_index = i
-                                                        break
-                                                if trial_index >= 0:
-                                                    right_layout.insertWidget(trial_index + 1, self.download_section, 5)
-                                                else:
-                                                    right_layout.addWidget(self.download_section, 5)
-                                except AttributeError:
-                                    # trial_btn 或其父对象不存在，忽略错误
-                                    pass
+                            # 使用保存的右侧面板引用
+                            if not hasattr(self, 'download_section') or not self.download_section:
+                                if self.right_panel and hasattr(self.right_panel, 'layout'):
+                                    right_layout = self.right_panel.layout()
+                                    if right_layout:
+                                        self.download_section = self.create_download_section()
+                                        # 找到试用区块的位置，在其后插入
+                                        trial_index = -1
+                                        if hasattr(self, 'trial_btn') and self.trial_btn:
+                                            try:
+                                                trial_section = self.trial_btn.parent().parent()
+                                                if trial_section:
+                                                    for i in range(right_layout.count()):
+                                                        item = right_layout.itemAt(i)
+                                                        if item and item.widget() == trial_section:
+                                                            trial_index = i
+                                                            break
+                                            except (AttributeError, RuntimeError):
+                                                pass
+                                        
+                                        if trial_index >= 0:
+                                            # 在试用区块后插入下载区块
+                                            right_layout.insertWidget(trial_index + 1, self.download_section, 5)
+                                        else:
+                                            # 如果找不到试用区块，添加到布局末尾（在stretch之前）
+                                            stretch_index = -1
+                                            for i in range(right_layout.count()):
+                                                item = right_layout.itemAt(i)
+                                                if item and item.spacerItem():
+                                                    stretch_index = i
+                                                    break
+                                            if stretch_index >= 0:
+                                                right_layout.insertWidget(stretch_index, self.download_section, 5)
+                                            else:
+                                                right_layout.addWidget(self.download_section, 5)
+                            else:
+                                # 下载区块已存在，确保可见
+                                if self.download_section:
+                                    self.download_section.setVisible(True)
                 
                 # 如果UI元素还没创建，延迟更新
                 if hasattr(self, 'trial_btn') and self.trial_btn:
