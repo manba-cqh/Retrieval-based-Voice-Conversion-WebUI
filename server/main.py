@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from server.database import init_db
-from server.routers import auth, models
+from server.routers import auth, models, invitation
 from server.config import settings
 
 # 创建FastAPI应用
@@ -31,6 +31,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(auth.router)
 app.include_router(models.router)
+app.include_router(invitation.router)
 
 
 @app.on_event("startup")

@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from api.auth import auth_api
 from api.async_utils import AsyncTaskManager
 from api.storage import token_storage
+from utils.mac_address import get_mac_address
 
 
 class PasswordWidget(QLineEdit):
@@ -335,10 +336,19 @@ class AuthPage(QWidget):
         self.login_btn.setEnabled(False)
         self.login_btn.setText("登录中...")
         
+        # 获取MAC地址
+        try:
+            mac = get_mac_address()
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"获取设备信息失败: {e}")
+            self.login_btn.setEnabled(True)
+            self.login_btn.setText("登录")
+            return
+        
         # 异步调用登录API
         thread, worker = self.task_manager.run_task(
             "login",
-            auth_api.login(username, password)
+            auth_api.login(username, password, mac)
         )
         
         # 连接信号
@@ -370,7 +380,13 @@ class AuthPage(QWidget):
             self.login_success.emit(username, password)
         else:
             # 登录失败，显示错误信息
-            QMessageBox.warning(self, "登录失败", result.get("message", "登录失败，请检查用户名和密码"))
+            error_message = result.get("message", "登录失败，请检查用户名和密码")
+            
+            # 检查是否是MAC地址相关的错误
+            if "设备" in error_message or "mac" in error_message.lower() or "其他设备" in error_message:
+                QMessageBox.warning(self, "登录失败", error_message)
+            else:
+                QMessageBox.warning(self, "登录失败", error_message)
     
     def _on_login_error(self, error: str):
         """登录错误处理"""
@@ -378,7 +394,11 @@ class AuthPage(QWidget):
         self.login_btn.setEnabled(True)
         self.login_btn.setText("登录")
         
-        QMessageBox.warning(self, "登录错误", f"登录过程中发生错误: {error}")
+        # 检查是否是MAC地址相关的错误
+        if "设备" in error or "mac" in error.lower() or "其他设备" in error:
+            QMessageBox.warning(self, "登录失败", f"设备验证失败: {error}")
+        else:
+            QMessageBox.warning(self, "登录错误", f"登录过程中发生错误: {error}")
     
     def on_forgot_password(self):
         """忘记密码"""
@@ -428,13 +448,24 @@ class AuthPage(QWidget):
         self.register_btn.setEnabled(False)
         self.register_btn.setText("注册中...")
         
+        # 获取MAC地址
+        try:
+            mac = get_mac_address()
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"获取设备信息失败: {e}")
+            self.register_btn.setEnabled(True)
+            self.register_btn.setText("注册")
+            return
+        
         # 异步调用注册API
         thread, worker = self.task_manager.run_task(
             "register",
             auth_api.register(
                 username=username,
                 password=password,
-                phone=phone
+                mac=mac,
+                phone=phone,
+                invitation_code=activation_code
             )
         )
         
@@ -460,7 +491,18 @@ class AuthPage(QWidget):
             self.register_success.emit(username, password, phone, activation_code)
         else:
             # 注册失败，显示错误信息
-            QMessageBox.warning(self, "注册失败", result.get("message", "注册失败，请重试"))
+            error_message = result.get("message", "注册失败，请重试")
+            
+            # 检查是否是邀请码相关的错误
+            if "邀请码" in error_message or "invitation" in error_message.lower():
+                if "不存在" in error_message:
+                    QMessageBox.warning(self, "邀请码错误", "邀请码不存在，请检查后重试")
+                elif "已被使用" in error_message or "已使用" in error_message:
+                    QMessageBox.warning(self, "邀请码错误", "该邀请码已被使用，请使用其他邀请码")
+                else:
+                    QMessageBox.warning(self, "邀请码错误", error_message)
+            else:
+                QMessageBox.warning(self, "注册失败", error_message)
     
     def _on_register_error(self, error: str):
         """注册错误处理"""
@@ -468,7 +510,16 @@ class AuthPage(QWidget):
         self.register_btn.setEnabled(True)
         self.register_btn.setText("注册")
         
-        QMessageBox.warning(self, "注册错误", f"注册过程中发生错误: {error}")
+        # 检查是否是邀请码相关的错误
+        if "邀请码" in error or "invitation" in error.lower():
+            if "不存在" in error:
+                QMessageBox.warning(self, "邀请码错误", "邀请码不存在，请检查后重试")
+            elif "已被使用" in error or "已使用" in error:
+                QMessageBox.warning(self, "邀请码错误", "该邀请码已被使用，请使用其他邀请码")
+            else:
+                QMessageBox.warning(self, "邀请码错误", f"邀请码验证失败: {error}")
+        else:
+            QMessageBox.warning(self, "注册错误", f"注册过程中发生错误: {error}")
     
     def load_saved_credentials(self):
         """加载保存的用户名和密码"""

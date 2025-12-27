@@ -15,6 +15,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     phone = Column(String(20), unique=True, index=True, nullable=True)
     email = Column(String(100), nullable=True)
+    mac = Column(String(50), nullable=True, index=True)  # MAC地址，用于设备绑定
     available_models = Column(Text, nullable=True)  # 可用模型的UUID列表，用分号分隔
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -146,4 +147,22 @@ class TrialRecord(Base):
         if not self.is_active:
             return True
         return datetime.utcnow() >= self.end_time
+
+
+class InvitationCode(Base):
+    """邀请码表"""
+    __tablename__ = "invitation_codes"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(50), unique=True, nullable=False, index=True)  # 邀请码
+    is_used = Column(Boolean, default=False, index=True)  # 是否已使用
+    used_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # 使用该邀请码的用户ID
+    used_at = Column(DateTime, nullable=True)  # 使用时间
+    created_at = Column(DateTime, default=datetime.utcnow)  # 创建时间
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # 创建者ID（管理员）
+    note = Column(String(200), nullable=True)  # 备注
+    
+    # 关联关系（可选，用于查询时关联用户信息）
+    creator = relationship("User", foreign_keys=[created_by], backref="created_invitation_codes")
+    user = relationship("User", foreign_keys=[used_by], backref="used_invitation_codes")
 

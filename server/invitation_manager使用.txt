@@ -1,0 +1,186 @@
+邀请码管理工具使用说明
+====================
+
+文件位置: server/invitation_manager.py
+
+功能说明
+--------
+这是一个命令行工具，用于管理系统的邀请码。可以创建、查询、标记和删除邀请码。
+
+运行环境
+--------
+1. 确保已安装项目依赖（sqlalchemy 等）
+2. 如果使用虚拟环境，需要先激活：
+   Windows PowerShell:
+     .\server\venv\Scripts\Activate.ps1
+   
+   Windows CMD:
+     server\venv\Scripts\activate.bat
+
+基本用法
+--------
+python server\invitation_manager.py <命令> [参数]
+
+可用命令
+--------
+
+1. 列出邀请码 (list)
+   用法: python server\invitation_manager.py list [选项]
+   
+   选项:
+     --used     只显示已使用的邀请码
+     --unused   只显示未使用的邀请码
+     --limit N  限制显示数量（默认100）
+   
+   示例:
+     # 列出所有邀请码
+     python server\invitation_manager.py list
+     
+     # 列出未使用的邀请码
+     python server\invitation_manager.py list --unused
+     
+     # 列出已使用的邀请码（最多50条）
+     python server\invitation_manager.py list --used --limit 50
+
+
+2. 创建邀请码 (create)
+   用法: python server\invitation_manager.py create <邀请码> [--note "备注"]
+   
+   参数:
+     <邀请码>   必填，邀请码字符串
+     --note     可选，备注信息
+   
+   示例:
+     # 创建简单邀请码
+     python server\invitation_manager.py create INVITE123
+     
+     # 创建带备注的邀请码
+     python server\invitation_manager.py create INVITE456 --note "VIP用户邀请码"
+
+
+3. 获取邀请码信息 (get)
+   用法: python server\invitation_manager.py get <邀请码>
+   
+   参数:
+     <邀请码>   必填，要查询的邀请码
+   
+   示例:
+     python server\invitation_manager.py get INVITE123
+   
+   输出信息包括:
+     - ID
+     - 邀请码
+     - 状态（已使用/未使用）
+     - 使用人ID
+     - 使用时间
+     - 创建时间
+     - 创建者ID
+     - 备注
+
+
+4. 标记邀请码为已使用 (mark-used)
+   用法: python server\invitation_manager.py mark-used <邀请码>
+   
+   参数:
+     <邀请码>   必填，要标记的邀请码
+   
+   功能:
+     - 将邀请码的 is_used 字段设置为 true
+     - 记录使用时间
+     - 如果邀请码已被使用，会显示警告信息
+   
+   示例:
+     python server\invitation_manager.py mark-used INVITE123
+
+
+5. 标记邀请码为未使用 (mark-unused)
+   用法: python server\invitation_manager.py mark-unused <邀请码>
+   
+   参数:
+     <邀请码>   必填，要取消标记的邀请码
+   
+   功能:
+     - 将邀请码的 is_used 字段设置为 false
+     - 清除使用人ID和使用时间
+     - 如果邀请码已经是未使用状态，会显示警告信息
+   
+   示例:
+     python server\invitation_manager.py mark-unused INVITE123
+
+
+6. 删除邀请码 (delete)
+   用法: python server\invitation_manager.py delete <邀请码>
+   
+   参数:
+     <邀请码>   必填，要删除的邀请码
+   
+   注意:
+     - 只能删除未使用的邀请码
+     - 已使用的邀请码无法删除（会显示警告）
+   
+   示例:
+     python server\invitation_manager.py delete INVITE123
+
+
+查看帮助
+--------
+python server\invitation_manager.py --help
+python server\invitation_manager.py <命令> --help
+
+使用场景示例
+------------
+
+场景1: 批量创建邀请码
+  python server\invitation_manager.py create INVITE001 --note "第一批"
+  python server\invitation_manager.py create INVITE002 --note "第一批"
+  python server\invitation_manager.py create INVITE003 --note "第一批"
+
+场景2: 查看所有未使用的邀请码
+  python server\invitation_manager.py list --unused
+
+场景3: 手动标记某个邀请码为已使用（如果系统未自动标记）
+  python server\invitation_manager.py mark-used INVITE123
+
+场景4: 误操作后恢复邀请码状态
+  python server\invitation_manager.py mark-unused INVITE123
+
+场景5: 清理未使用的测试邀请码
+  python server\invitation_manager.py list --unused
+  python server\invitation_manager.py delete INVITE_TEST001
+
+注意事项
+--------
+1. 所有操作都会直接修改数据库，请谨慎操作
+2. 删除操作不可恢复，删除前请确认
+3. 已使用的邀请码无法删除，只能标记为未使用后再删除
+4. 邀请码字符串会去除首尾空格
+5. 创建邀请码时，如果已存在相同邀请码，会提示错误
+6. 脚本会自动初始化数据库（如果表不存在）
+
+数据库位置
+----------
+数据库文件位置由 server/config.py 中的 database_url 配置决定。
+默认位置: server/data.db
+
+常见问题
+--------
+
+Q: 提示 "ModuleNotFoundError: No module named 'sqlalchemy'"
+A: 需要激活虚拟环境或安装项目依赖
+
+Q: 提示 "数据库初始化失败"
+A: 检查数据库文件路径是否正确，确保有写入权限
+
+Q: 无法删除已使用的邀请码
+A: 这是正常行为，已使用的邀请码不能直接删除。可以先使用 mark-unused 命令标记为未使用，然后再删除
+
+Q: 如何批量操作？
+A: 可以编写批处理脚本或 PowerShell 脚本，循环调用本工具
+
+联系与支持
+----------
+如有问题，请检查：
+1. 数据库连接是否正常
+2. 虚拟环境是否已激活
+3. 命令参数是否正确
+

@@ -15,12 +15,15 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """用户注册"""
     password: str = Field(..., min_length=6, max_length=50)
+    invitation_code: str = Field(..., min_length=1, max_length=50, description="邀请码")
+    mac: str = Field(..., min_length=1, max_length=50, description="MAC地址")
 
 
 class UserLogin(BaseModel):
     """用户登录"""
     username: str
     password: str
+    mac: str = Field(..., min_length=1, max_length=50, description="MAC地址")
 
 
 class UserResponse(UserBase):

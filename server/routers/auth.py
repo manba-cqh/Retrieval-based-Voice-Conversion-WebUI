@@ -1,11 +1,11 @@
 """认证路由"""
-from datetime import timedelta
+from datetime import timedelta, datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from server.database import get_db
-from server.models import User
-from server.schemas import UserCreate, UserResponse, Token
+from server.models import User, InvitationCode
+from server.schemas import UserCreate, UserResponse, Token, UserLogin
 from server.auth import (
     authenticate_user,
     create_access_token,
@@ -38,15 +38,40 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
                 detail="手机号已被注册"
             )
     
+    # 验证邀请码
+    invitation_code = db.query(InvitationCode).filter(
+        InvitationCode.code == user_data.invitation_code.strip()
+    ).first()
+    
+    if not invitation_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="邀请码不存在"
+        )
+    
+    if invitation_code.is_used:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="邀请码已被使用"
+        )
+    
     # 创建新用户
     hashed_password = get_password_hash(user_data.password)
     db_user = User(
         username=user_data.username,
         password_hash=hashed_password,
         phone=user_data.phone,
-        email=user_data.email
+        email=user_data.email,
+        mac=user_data.mac.strip().upper()  # 统一转换为大写
     )
     db.add(db_user)
+    db.flush()  # 先刷新以获取用户ID
+    
+    # 标记邀请码为已使用并关联用户
+    invitation_code.is_used = True
+    invitation_code.used_by = db_user.id
+    invitation_code.used_at = datetime.utcnow()
+    
     db.commit()
     db.refresh(db_user)
     
@@ -55,16 +80,33 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    login_data: UserLogin,
     db: Session = Depends(get_db)
 ):
     """用户登录"""
-    user = authenticate_user(db, form_data.username, form_data.password)
+    user = authenticate_user(db, login_data.username, login_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # 验证MAC地址
+    client_mac = login_data.mac.strip().upper()
+    
+    # 如果用户没有MAC地址，拒绝登录（注册时应该已经保存了MAC地址）
+    if not user.mac:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="账号未绑定设备，请联系管理员"
+        )
+    
+    # 比对MAC地址，不一致则拒绝登录
+    if user.mac != client_mac:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="该账号已在其他设备上登录，一个账号只能在一台设备上使用"
         )
     
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)

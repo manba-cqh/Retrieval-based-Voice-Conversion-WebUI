@@ -34,8 +34,10 @@ class AuthAPI(AsyncAPIClient):
         self,
         username: str,
         password: str,
+        mac: str,
         phone: Optional[str] = None,
-        email: Optional[str] = None
+        email: Optional[str] = None,
+        invitation_code: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         用户注册（异步）
@@ -43,8 +45,10 @@ class AuthAPI(AsyncAPIClient):
         Args:
             username: 用户名
             password: 密码
+            mac: MAC地址（必填）
             phone: 手机号（可选）
             email: 邮箱（可选）
+            invitation_code: 邀请码（必填）
         
         Returns:
             注册结果字典
@@ -52,12 +56,15 @@ class AuthAPI(AsyncAPIClient):
         url = self._get_url(API_AUTH_REGISTER)
         json_data = {
             "username": username,
-            "password": password
+            "password": password,
+            "mac": mac
         }
         if phone:
             json_data["phone"] = phone
         if email:
             json_data["email"] = email
+        if invitation_code:
+            json_data["invitation_code"] = invitation_code
         
         result = await self.post(url, json_data=json_data)
         
@@ -68,25 +75,27 @@ class AuthAPI(AsyncAPIClient):
         
         return result
     
-    async def login(self, username: str, password: str) -> Dict[str, Any]:
+    async def login(self, username: str, password: str, mac: str) -> Dict[str, Any]:
         """
         用户登录（异步）
         
         Args:
             username: 用户名
             password: 密码
+            mac: MAC地址（必填）
         
         Returns:
             登录结果字典，包含token和用户信息
         """
         url = self._get_url(API_AUTH_LOGIN)
-        # 使用 form-data 格式（OAuth2PasswordRequestForm）
-        data = {
+        # 使用 JSON 格式（因为需要传递 MAC 地址）
+        json_data = {
             "username": username,
-            "password": password
+            "password": password,
+            "mac": mac
         }
         
-        result = await self.post(url, data=data)
+        result = await self.post(url, json_data=json_data)
         
         if result.get("success"):
             # 保存token和用户信息
