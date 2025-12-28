@@ -729,13 +729,23 @@ class ModelDetailPage(QWidget):
                 categories = [cat.strip() for cat in category.split(";")]
                 is_free_model = "免费音色" in categories
             
+            # 判断是否为官方模型
+            is_official_model = category and "官方音色" in [cat.strip() for cat in category.split(";")]
+            
             # 判断是否为收费模型（价格大于0或不是免费音色）
-            is_paid_model = price > 0 or (not is_free_model and category and "官方音色" in categories)
+            is_paid_model = price > 0 or (not is_free_model and is_official_model)
+            
+            # 检查模型是否在用户的可用模型列表中
+            model_uid = self.model_data.get("uid")
+            is_in_available_list = False
+            if model_uid:
+                available_uids = self._get_user_available_model_uids()
+                if available_uids and model_uid in available_uids:
+                    is_in_available_list = True
             
             # 检查是否有正在进行的试用
             has_active_trial = False
             if self.home_page and hasattr(self.home_page, 'user_trials'):
-                model_uid = self.model_data.get("uid")
                 if model_uid:
                     trial_data = self.home_page.user_trials.get(model_uid)
                     if trial_data and trial_data.get("is_active", False):
@@ -743,15 +753,21 @@ class ModelDetailPage(QWidget):
                         if remaining_seconds > 0:
                             has_active_trial = True
             
-            # 如果不是免费模型，显示试用区块
-            if not is_free_model:
-                trial_section = self.create_trial_section()
-                layout.addWidget(trial_section, 5)
-            
-            # 下载按钮：免费模型始终显示，收费模型只在试用中显示
-            if not is_paid_model or has_active_trial:
+            # 如果是官方模型、未下载、且在用户可用列表中，显示下载按钮而不是试用按钮
+            if is_official_model and is_in_available_list:
+                # 显示下载区块，不显示试用区块
                 self.download_section = self.create_download_section()
                 layout.addWidget(self.download_section, 5)
+            else:
+                # 如果不是免费模型，显示试用区块
+                if not is_free_model:
+                    trial_section = self.create_trial_section()
+                    layout.addWidget(trial_section, 5)
+                
+                # 下载按钮：免费模型始终显示，收费模型只在试用中显示
+                if not is_paid_model or has_active_trial:
+                    self.download_section = self.create_download_section()
+                    layout.addWidget(self.download_section, 5)
         
         layout.addStretch()
         return panel
@@ -1387,6 +1403,43 @@ class ModelDetailPage(QWidget):
         self.trial_btn.setEnabled(True)
         self.trial_btn.setText("开始试用")
         self._cleanup_trial_thread()
+    
+    def _get_user_available_model_uids(self):
+        """
+        获取用户可用的模型UUID列表
+        
+        Returns:
+            可用模型UUID的集合（set），如果用户未登录或没有可用模型列表则返回None
+        """
+        try:
+            # 尝试从auth_api获取用户信息
+            user_info = auth_api.user_info
+            if not user_info:
+                # 如果auth_api中没有，尝试从存储中加载
+                from api.storage import token_storage
+                user_info = token_storage.load_user_info()
+            
+            if not user_info:
+                # 用户未登录，返回None
+                return None
+            
+            # 获取available_models字段
+            available_models = user_info.get("available_models")
+            if not available_models:
+                # 如果没有available_models字段或为空，返回None
+                return None
+            
+            # 解析分号分隔的UUID列表
+            uids = [uid.strip() for uid in available_models.split(";") if uid.strip()]
+            if not uids:
+                # 如果解析后列表为空，返回None
+                return None
+            return set(uids)  # 返回集合以便快速查找
+            
+        except Exception as e:
+            print(f"获取用户可用模型列表失败: {e}")
+            # 出错时返回None
+            return None
     
     def _check_trial_status(self):
         """检查试用状态（页面加载时）"""
