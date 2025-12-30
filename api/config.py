@@ -2,7 +2,7 @@
 import os
 
 # 服务端API基础URL
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+API_BASE_URL = os.getenv("API_BASE_URL", "http://106.54.161.84:8000")
 
 # API端点
 API_AUTH_REGISTER = f"{API_BASE_URL}/api/auth/register"

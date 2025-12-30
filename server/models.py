@@ -134,19 +134,23 @@ class TrialRecord(Base):
     )
     
     def get_remaining_seconds(self) -> int:
-        """获取剩余试用时间（秒）"""
+        """获取剩余试用时间（秒）：基于start_time与当前系统时间的差值计算"""
         if not self.is_active:
             return 0
-        now = datetime.utcnow()
+        now = datetime.now()  # 使用本地系统时间
         if now >= self.end_time:
             return 0
-        return int((self.end_time - now).total_seconds())
+        # 计算已用时间：当前时间 - 开始时间
+        elapsed_seconds = int((now - self.start_time).total_seconds())
+        # 剩余时间 = 总时长 - 已用时间
+        remaining = self.duration_seconds - elapsed_seconds
+        return max(0, remaining)  # 确保不为负数
     
     def is_expired(self) -> bool:
         """检查试用是否已过期"""
         if not self.is_active:
             return True
-        return datetime.utcnow() >= self.end_time
+        return datetime.now() >= self.end_time  # 使用本地系统时间
 
 
 class InvitationCode(Base):

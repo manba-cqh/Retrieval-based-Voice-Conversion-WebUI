@@ -310,7 +310,7 @@ def get_user_trials(
         )
     ).all()
     
-    now = datetime.utcnow()
+    now = datetime.now()  # 使用本地系统时间
     for trial in expired_trials:
         if trial.is_expired():
             trial.is_active = False
@@ -513,7 +513,7 @@ def start_trial(
     
     # 创建新的试用记录
     duration_seconds = 3600  # 默认1小时
-    start_time = datetime.utcnow()
+    start_time = datetime.now()  # 使用本地系统时间
     end_time = start_time + timedelta(seconds=duration_seconds)
     
     new_trial = TrialRecord(

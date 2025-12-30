@@ -323,17 +323,15 @@ class ManagementPage(BasePage):
             is_free_model = "免费音色" in categories
             
             # 对于免费音色，只要本地存在就显示，不需要在用户的可用列表中
-            # 对于非免费音色（官方音色等），必须同时在用户的可用列表中或正在试用中
+            # 对于收费模型，先检查用户表中的可用模型，如果不在，再检查试用状态
             if not is_free_model:
-                result = self._check_model_trial_status(model_uid)
-                # 非免费音色，需要检查用户的可用模型列表或试用状态
-                if available_model_uids is None:
-                    # 用户未登录或没有可用模型列表，检查是否有试用
-                    has_trial = self._check_model_trial_status(model_uid)
-                    if not has_trial:
-                        continue
-                elif not model_uid or model_uid not in available_model_uids:
-                    # 模型不在用户的可用列表中，检查是否有试用
+                # 先检查用户表中的可用模型（本地操作，性能更好）
+                is_in_available_list = False
+                if available_model_uids is not None and model_uid and model_uid in available_model_uids:
+                    is_in_available_list = True
+                
+                # 如果不在可用列表中，再检查试用状态（需要API调用，较慢）
+                if not is_in_available_list:
                     has_trial = self._check_model_trial_status(model_uid)
                     if not has_trial:
                         # 既不在可用列表，也没有试用，跳过
