@@ -6,13 +6,14 @@ from PyQt6.QtWidgets import (
     QLineEdit, QScrollArea, QGridLayout, QFrame, QStackedWidget,
     QMessageBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QMovie
 
 from .base_page import BasePage
 from api.auth import auth_api
 from api.models import models_api
 from .home_page import ModelCard, ModelDetailPage
+from api.async_utils import run_async
 import asyncio
 
 
@@ -25,6 +26,11 @@ class ManagementPage(BasePage):
         self.filtered_models = []  # 过滤后的模型
         self.current_category = "全部音色"  # 当前选中的分类
         self.current_model = None  # 当前查看的模型
+        self.local_model_uids = set()  # 本地模型的uid集合
+        self.server_models = []  # 从服务器获取的模型数据
+        self.refresh_timer = None  # 自动刷新定时器
+        self.load_thread = None  # 加载线程
+        self.load_worker = None  # 加载工作器
         self.setup_content()
         # 不在初始化时加载模型，等待登录成功后再加载
         # self.load_models()  # 加载模型数据
@@ -202,18 +208,433 @@ class ManagementPage(BasePage):
         """)
         self.search_input.textChanged.connect(self.on_search_changed)
         categories_layout.addWidget(self.search_input)
+        
+        # 添加刷新按钮
+        refresh_btn = QPushButton("刷新")
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #8b5cf6;
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 20px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #7c3aed;
+            }
+        """)
+        refresh_btn.clicked.connect(self.refresh_from_server)
+        categories_layout.addWidget(refresh_btn)
 
         layout.addLayout(categories_layout)
         
         return toolbar
     
     def load_models(self):
-        """从models目录加载模型数据"""
+        """从models目录和服务器加载模型数据"""
+        # 先加载本地模型uid列表
+        self._load_local_model_uids()
+        
+        # 检查登录状态
+        if not auth_api.is_logged_in():
+            print("未登录，只加载本地模型数据")
+            self.models_data = self.fetch_models_from_models_dir()
+            self.models_data.sort(key=lambda x: x.get("name", "").lower())
+            self.filtered_models = self.models_data.copy()
+            self.update_model_grid()
+            return
+        
+        # 从服务器加载模型数据
+        self.load_models_from_server()
+    
+    def load_models_from_server(self):
+        """从服务器加载模型数据"""
+        # 如果已有加载线程在运行，先清理
+        if self.load_thread and self.load_thread.isRunning():
+            try:
+                if self.load_worker:
+                    self.load_worker.finished.disconnect()
+                    self.load_worker.error.disconnect()
+                self.load_thread.quit()
+                self.load_thread.wait(1000)
+            except:
+                pass
+        
+        # 创建异步任务
+        async def fetch_models():
+            """异步获取模型列表（分页获取所有模型）"""
+            all_models = []
+            skip = 0
+            limit = 100  # 每次获取100条
+            total = None
+            
+            while True:
+                # 获取当前页的模型
+                result = await models_api.get_models(skip=skip, limit=limit)
+                
+                if not result.get("success"):
+                    # 如果请求失败，返回已获取的数据
+                    break
+                
+                # 获取总数（只在第一次获取）
+                if total is None:
+                    total = result.get("total", 0)
+                
+                # 获取当前页的模型列表
+                models = result.get("models", [])
+                if not models:
+                    break
+                
+                all_models.extend(models)
+                
+                # 如果已经获取了所有模型，退出循环
+                if len(all_models) >= total:
+                    break
+                
+                # 准备获取下一页
+                skip += limit
+            
+            # 返回合并后的结果
+            return {
+                "success": True,
+                "models": all_models,
+                "total": len(all_models)
+            }
+        
+        # 使用异步工具运行
+        self.load_thread, self.load_worker = run_async(fetch_models())
+        
+        # 连接信号
+        self.load_worker.finished.connect(self.on_server_models_loaded)
+        self.load_worker.error.connect(self.on_server_models_load_error)
+        
+        # 启动线程
+        self.load_thread.start()
+    
+    def on_server_models_loaded(self, result):
+        """服务器模型数据加载完成"""
+        try:
+            if result.get("success"):
+                self.server_models = result.get("models", [])
+                # 合并服务器数据和本地数据
+                self._merge_server_and_local_models()
+            else:
+                # 如果服务器加载失败，只使用本地数据
+                print("服务器模型加载失败，使用本地数据")
+                self.models_data = self.fetch_models_from_models_dir()
+                self.models_data.sort(key=lambda x: x.get("name", "").lower())
+                self.filtered_models = self.models_data.copy()
+                self.update_model_grid()
+        except Exception as e:
+            print(f"处理服务器模型数据失败: {e}")
+            # 出错时使用本地数据
+            self.models_data = self.fetch_models_from_models_dir()
+            self.models_data.sort(key=lambda x: x.get("name", "").lower())
+            self.filtered_models = self.models_data.copy()
+            self.update_model_grid()
+        finally:
+            # 清理线程
+            if self.load_thread:
+                try:
+                    self.load_thread.quit()
+                    self.load_thread.wait()
+                except:
+                    pass
+                self.load_thread = None
+                self.load_worker = None
+    
+    def on_server_models_load_error(self, error):
+        """服务器模型数据加载错误"""
+        print(f"从服务器加载模型失败: {error}")
+        # 使用本地数据
         self.models_data = self.fetch_models_from_models_dir()
-        # 按模型名称排序
         self.models_data.sort(key=lambda x: x.get("name", "").lower())
         self.filtered_models = self.models_data.copy()
         self.update_model_grid()
+        
+        # 清理线程
+        if self.load_thread:
+            try:
+                self.load_thread.quit()
+                self.load_thread.wait()
+            except:
+                pass
+            self.load_thread = None
+            self.load_worker = None
+    
+    def _load_local_model_uids(self):
+        """加载本地模型的uid列表"""
+        self.local_model_uids.clear()
+        models_dir = os.path.join(os.getcwd(), "models")
+        
+        if not os.path.exists(models_dir):
+            return
+        
+        # 扫描models目录下的所有子目录
+        for item in os.listdir(models_dir):
+            model_dir_path = os.path.join(models_dir, item)
+            
+            # 只处理目录
+            if not os.path.isdir(model_dir_path):
+                continue
+            
+            # 查找.pth文件
+            pth_files = [f for f in os.listdir(model_dir_path) if f.endswith(".pth")]
+            if not pth_files:
+                continue
+            
+            # 查找json信息文件
+            json_files = [f for f in os.listdir(model_dir_path) if f.endswith(".json")]
+            
+            # 读取json信息文件获取uid
+            if json_files:
+                json_path = os.path.join(model_dir_path, json_files[0])
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        model_info = json.load(f)
+                        model_uid = model_info.get("uuid") or model_info.get("uid")
+                        if model_uid:
+                            self.local_model_uids.add(model_uid)
+                except Exception as e:
+                    print(f"读取模型信息文件失败 {json_path}: {e}")
+    
+    def _merge_server_and_local_models(self):
+        """合并服务器模型数据和本地模型数据"""
+        # 先加载本地模型数据（包括所有本地模型，不进行可用性过滤）
+        local_models = self._fetch_all_local_models()
+        
+        # 获取用户可用的模型UUID列表
+        available_model_uids = self._get_user_available_model_uids()
+        
+        # 创建本地模型的映射（以uid为key）
+        local_models_map = {}
+        for model in local_models:
+            uid = model.get("uid")
+            if uid:
+                local_models_map[uid] = model
+        
+        # 合并服务器模型数据
+        merged_models = []
+        server_models_map = {}
+        merged_uids = set()  # 记录已合并的模型UID
+        
+        for server_model in self.server_models:
+            uid = server_model.get("uid")
+            if not uid:
+                continue
+            
+            server_models_map[uid] = server_model
+            
+            # 检查本地是否已下载
+            is_downloaded = uid in self.local_model_uids
+            
+            # 判断是否为免费模型
+            category = server_model.get("category", "")
+            categories = [cat.strip() for cat in category.split(";")] if category else []
+            is_free_model = "免费音色" in categories
+            
+            # 对于免费模型，如果本地已下载，总是显示
+            # 对于收费模型，需要检查是否在用户的可用列表中
+            should_show = False
+            if is_free_model and is_downloaded:
+                # 免费模型且已下载，总是显示
+                should_show = True
+            elif not is_free_model:
+                # 收费模型，检查是否在可用列表中
+                if available_model_uids is not None and uid in available_model_uids:
+                    should_show = True
+            
+            if not should_show:
+                continue
+            
+            # 转换服务器模型数据格式为本地格式
+            model_data = {
+                "id": f"m{server_model.get('id', '')}",
+                "name": server_model.get("name", ""),
+                "image": "",  # 服务器模型需要下载图片
+                "description": server_model.get("description", ""),
+                "category": category,
+                "is_official": "官方音色" in categories,
+                "is_favorite": "收藏" in categories,
+                "version": server_model.get("version", "V1"),
+                "sample_rate": "48K",  # 默认值
+                "pth_path": "",  # 服务器模型需要下载
+                "index_path": "",  # 服务器模型需要下载
+                "uid": uid,
+                "price": server_model.get("price", 0),
+                "is_downloaded": is_downloaded,  # 标记是否已下载
+                "server_data": server_model  # 保存服务器原始数据
+            }
+            
+            # 如果本地已下载，使用本地数据覆盖
+            if is_downloaded and uid in local_models_map:
+                local_model = local_models_map[uid]
+                # 保留本地路径信息
+                model_data["pth_path"] = local_model.get("pth_path", "")
+                model_data["index_path"] = local_model.get("index_path", "")
+                model_data["image"] = local_model.get("image", "")
+            
+            merged_models.append(model_data)
+            merged_uids.add(uid)
+        
+        # 添加本地独有的模型（不在服务器上的，或免费模型但不在服务器上的）
+        for uid, local_model in local_models_map.items():
+            if uid not in merged_uids:
+                # 判断是否为免费模型
+                category = local_model.get("category", "免费音色")
+                categories = [cat.strip() for cat in category.split(";")] if category else []
+                is_free_model = "免费音色" in categories
+                
+                # 免费模型总是显示，收费模型需要检查可用性
+                if is_free_model:
+                    # 免费模型，总是显示
+                    merged_models.append(local_model)
+                    merged_uids.add(uid)
+                elif available_model_uids is not None and uid in available_model_uids:
+                    # 收费模型但在可用列表中，显示
+                    merged_models.append(local_model)
+                    merged_uids.add(uid)
+        
+        # 按模型名称排序
+        merged_models.sort(key=lambda x: x.get("name", "").lower())
+        
+        self.models_data = merged_models
+        self.filtered_models = self.models_data.copy()
+        self.update_model_grid()
+    
+    def _fetch_all_local_models(self):
+        """从models目录获取所有本地模型数据（不进行可用性过滤）"""
+        models_dir = os.path.join(os.getcwd(), "models")
+        models_data = []
+        
+        # 如果models目录不存在，返回空列表
+        if not os.path.exists(models_dir):
+            return models_data
+        
+        # 扫描models目录下的所有子目录
+        model_id = 1
+        for item in os.listdir(models_dir):
+            model_dir_path = os.path.join(models_dir, item)
+            
+            # 只处理目录
+            if not os.path.isdir(model_dir_path):
+                continue
+            
+            # 查找.pth文件（文件名可以是任意的，只要扩展名是.pth即可）
+            pth_files = [f for f in os.listdir(model_dir_path) if f.endswith(".pth")]
+            if not pth_files:
+                continue  # 如果没有.pth文件，跳过这个目录
+            
+            # 查找index文件（文件名可以是任意的，只要扩展名是.index即可）
+            index_files = [f for f in os.listdir(model_dir_path) if f.endswith(".index")]
+            
+            # 查找json信息文件
+            json_files = [f for f in os.listdir(model_dir_path) if f.endswith(".json")]
+            
+            # 查找图片文件（支持常见图片格式）
+            image_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
+            image_files = [f for f in os.listdir(model_dir_path) 
+                          if f.lower().endswith(image_extensions)]
+            
+            # 使用第一个找到的.pth文件
+            pth_path = os.path.join(model_dir_path, pth_files[0])
+            
+            # 使用第一个找到的index文件，如果没有则设为空字符串
+            index_path = os.path.join(model_dir_path, index_files[0]) if index_files else ""
+            
+            # 读取json信息文件（如果存在）
+            model_info = {}
+            if json_files:
+                json_path = os.path.join(model_dir_path, json_files[0])
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        model_info = json.load(f)
+                except Exception as e:
+                    print(f"读取模型信息文件失败 {json_path}: {e}")
+            
+            # 构建模型数据
+            model_name = model_info.get("name", item)  # 如果json中没有name，使用目录名
+            
+            # 确定模型图片路径（优先级：json中的image > 目录下的图片文件）
+            model_image = model_info.get("image", "")
+            if model_image:
+                # 如果json中指定了图片路径
+                if not os.path.isabs(model_image):
+                    # 如果是相对路径，转换为相对于模型目录的路径
+                    model_image = os.path.join(model_dir_path, model_image)
+            elif image_files:
+                # 如果json中没有指定，但目录下有图片文件，使用第一个找到的图片
+                model_image = os.path.join(model_dir_path, image_files[0])
+            else:
+                # 没有图片
+                model_image = ""
+            
+            # 获取分类信息（从json中读取，默认为"免费音色"，支持多个分类用分号分隔）
+            category = model_info.get("category", "免费音色")
+            # 判断是否为官方音色（如果category中包含"官方音色"）
+            categories = [cat.strip() for cat in category.split(";")]
+            is_official = "官方音色" in categories
+            # 判断是否为收藏（如果category中包含"收藏"）
+            is_favorite = "收藏" in categories
+            
+            # 读取uid（支持uuid或uid字段）
+            model_uid = model_info.get("uuid") or model_info.get("uid")
+            
+            # 构建模型数据（兼容管理页面的数据结构）
+            model_data = {
+                "id": f"m{model_id}",
+                "name": model_name,
+                "image": model_image,
+                "description": model_info.get("description", ""),
+                "category": category,
+                "is_official": is_official,
+                "is_favorite": is_favorite,  # 从category字段中判断，如果包含"收藏"则为True
+                "version": model_info.get("version", "V1"),
+                "sample_rate": model_info.get("sample_rate", "48K"),
+                "pth_path": pth_path,
+                "index_path": index_path,
+                "uid": model_uid,  # 添加uid字段
+            }
+            
+            # 添加json中的其他信息（如果有）
+            for key in ["price", "category_name"]:
+                if key in model_info:
+                    model_data[key] = model_info[key]
+            
+            models_data.append(model_data)
+            model_id += 1
+        
+        return models_data
+    
+    def refresh_from_server(self):
+        """从服务器刷新模型数据"""
+        if not auth_api.is_logged_in():
+            QMessageBox.warning(self, "提示", "请先登录")
+            return
+        
+        # 重新加载本地模型uid列表
+        self._load_local_model_uids()
+        
+        # 从服务器加载
+        self.load_models_from_server()
+    
+    def start_auto_refresh(self, interval_seconds=60):
+        """启动自动刷新（定时从服务器刷新）"""
+        if self.refresh_timer:
+            self.refresh_timer.stop()
+        
+        self.refresh_timer = QTimer()
+        self.refresh_timer.timeout.connect(self.refresh_from_server)
+        self.refresh_timer.start(interval_seconds * 1000)  # 转换为毫秒
+    
+    def stop_auto_refresh(self):
+        """停止自动刷新"""
+        if self.refresh_timer:
+            self.refresh_timer.stop()
+            self.refresh_timer = None
     
     def _refresh_models_with_filter(self):
         """刷新模型数据，但保持当前的筛选条件"""

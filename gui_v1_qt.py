@@ -168,12 +168,13 @@ class MainWindow(QMainWindow):
             btn.setStyleSheet("""
                 QPushButton {
                     font-size: 42px;
+                    font-weight: bold;
                 }
                 text-align: center;
             """)
             
             # 设置图标大小
-            btn.setIconSize(QSize(32, 32))
+            btn.setIconSize(QSize(24, 24))
             
             btn.clicked.connect(lambda checked, k=key: self.on_nav_clicked(k))
             self.nav_buttons[key] = btn
