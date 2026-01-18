@@ -519,6 +519,93 @@ class ModelsAPI(AsyncAPIClient):
             return {"success": False, "message": error_msg}
         except Exception as e:
             return {"success": False, "message": f"获取试用记录失败: {str(e)}"}
+    
+    async def toggle_favorite(self, uuid: str) -> Dict[str, Any]:
+        """
+        切换模型收藏状态（收藏/取消收藏）
+        
+        Args:
+            uuid: 模型UUID
+        
+        Returns:
+            收藏操作结果字典
+        """
+        base_url = self._get_url(API_MODELS)
+        if base_url.endswith('/'):
+            base_url = base_url.rstrip('/')
+        url = f"{base_url}/by-uuid/{uuid}/favorite"
+        headers = self._get_headers()
+        
+        try:
+            result = await self.post(url, headers=headers)
+            return result
+        except httpx.HTTPStatusError as e:
+            error_msg = "收藏操作失败"
+            try:
+                error_data = e.response.json()
+                error_msg = error_data.get("detail", error_msg)
+            except:
+                error_msg = f"收藏操作失败: {e.response.status_code}"
+            return {"success": False, "message": error_msg}
+        except Exception as e:
+            return {"success": False, "message": f"收藏操作失败: {str(e)}"}
+    
+    async def get_favorite_status(self, uuid: str) -> Dict[str, Any]:
+        """
+        获取模型的收藏状态
+        
+        Args:
+            uuid: 模型UUID
+        
+        Returns:
+            收藏状态字典
+        """
+        base_url = self._get_url(API_MODELS)
+        if base_url.endswith('/'):
+            base_url = base_url.rstrip('/')
+        url = f"{base_url}/by-uuid/{uuid}/favorite-status"
+        headers = self._get_headers()
+        
+        try:
+            result = await self.get(url, headers=headers)
+            return result
+        except httpx.HTTPStatusError as e:
+            error_msg = "获取收藏状态失败"
+            try:
+                error_data = e.response.json()
+                error_msg = error_data.get("detail", error_msg)
+            except:
+                error_msg = f"获取收藏状态失败: {e.response.status_code}"
+            return {"success": False, "message": error_msg}
+        except Exception as e:
+            return {"success": False, "message": f"获取收藏状态失败: {str(e)}"}
+    
+    async def get_user_favorites(self) -> Dict[str, Any]:
+        """
+        获取用户的所有收藏模型
+        
+        Returns:
+            收藏模型列表
+        """
+        base_url = self._get_url(API_MODELS)
+        if base_url.endswith('/'):
+            base_url = base_url.rstrip('/')
+        url = f"{base_url}/favorites"
+        headers = self._get_headers()
+        
+        try:
+            result = await self.get(url, headers=headers)
+            return result
+        except httpx.HTTPStatusError as e:
+            error_msg = "获取收藏列表失败"
+            try:
+                error_data = e.response.json()
+                error_msg = error_data.get("detail", error_msg)
+            except:
+                error_msg = f"获取收藏列表失败: {e.response.status_code}"
+            return {"success": False, "message": error_msg}
+        except Exception as e:
+            return {"success": False, "message": f"获取收藏列表失败: {str(e)}"}
 
 
 # 全局API实例

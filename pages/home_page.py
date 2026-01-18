@@ -299,6 +299,10 @@ class ModelDetailPage(QWidget):
         self.audio_download_thread = None
         self.audio_download_worker = None
         
+        # 收藏线程相关
+        self.favorite_thread = None
+        self.favorite_worker = None
+        
         # 查找音频文件
         self.find_audio_file()
         
@@ -1820,6 +1824,73 @@ class ModelDetailPage(QWidget):
         
         layout.addLayout(use_layout)
         
+        # 删除和收藏按钮
+        action_layout = QHBoxLayout()
+        action_layout.setSpacing(10)
+        
+        # 收藏按钮
+        favorite_btn = QPushButton()
+        # 检查当前是否已收藏
+        category = self.model_data.get("category", "")
+        categories = [cat.strip() for cat in category.split(";") if cat.strip()]
+        is_favorite = "收藏" in categories
+        if is_favorite:
+            favorite_btn.setText("★ 已收藏")
+            favorite_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #ff9800;
+                    color: #ffffff;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    font-size: 14px;
+                }
+                QPushButton:hover {
+                    background-color: #f57c00;
+                }
+            """)
+        else:
+            favorite_btn.setText("☆ 收藏")
+            favorite_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #4caf50;
+                    color: #ffffff;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    font-size: 14px;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+            """)
+        favorite_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        favorite_btn.clicked.connect(self.on_favorite_clicked)
+        self.favorite_btn = favorite_btn  # 保存引用以便更新文本
+        action_layout.addWidget(favorite_btn)
+        
+        # 删除按钮
+        delete_btn = QPushButton("删除")
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+        """)
+        delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        delete_btn.clicked.connect(self.on_delete_clicked)
+        action_layout.addWidget(delete_btn)
+        
+        action_layout.addStretch()
+        layout.addLayout(action_layout)
+        
         # 显示模型文件路径信息
         pth_path = self.model_data.get("pth_path", "")
         index_path = self.model_data.get("index_path", "")
@@ -1835,6 +1906,252 @@ class ModelDetailPage(QWidget):
     def on_use_clicked(self):
         """使用按钮点击"""
         QMessageBox.information(self, "提示", "请前往推理页面使用该模型")
+    
+    def on_favorite_clicked(self):
+        """收藏/取消收藏按钮点击"""
+        # 获取模型UUID
+        model_uid = self.model_data.get("uid")
+        if not model_uid:
+            QMessageBox.warning(self, "错误", "模型UUID不存在")
+            return
+        
+        # 检查是否已登录
+        if not auth_api.is_logged_in():
+            QMessageBox.warning(self, "提示", "请先登录后再使用收藏功能")
+            return
+        
+        # 异步切换收藏状态
+        async def toggle_favorite():
+            try:
+                result = await models_api.toggle_favorite(model_uid)
+                return result
+            except Exception as e:
+                return {"success": False, "message": f"收藏操作失败: {str(e)}"}
+        
+        # 使用异步工具运行
+        self.favorite_thread, self.favorite_worker = run_async(toggle_favorite())
+        self.favorite_worker.finished.connect(self._on_favorite_finished)
+        self.favorite_worker.error.connect(self._on_favorite_error)
+        self.favorite_thread.start()
+        
+        # 禁用按钮，防止重复点击
+        if self.favorite_btn:
+            self.favorite_btn.setEnabled(False)
+            self.favorite_btn.setText("处理中...")
+    
+    def _on_favorite_finished(self, result):
+        """收藏操作完成"""
+        # 清理线程
+        if self.favorite_thread:
+            self.favorite_thread.quit()
+            self.favorite_thread.wait()
+            self.favorite_thread = None
+            self.favorite_worker = None
+        
+        if not result.get("success"):
+            # 恢复按钮状态
+            if self.favorite_btn:
+                self.favorite_btn.setEnabled(True)
+                # 恢复按钮文本（根据当前状态）
+                category = self.model_data.get("category", "")
+                categories = [cat.strip() for cat in category.split(";") if cat.strip()]
+                is_favorite = "收藏" in categories
+                if is_favorite:
+                    self.favorite_btn.setText("★ 已收藏")
+                else:
+                    self.favorite_btn.setText("☆ 收藏")
+            QMessageBox.warning(self, "错误", result.get("message", "收藏操作失败"))
+            return
+        
+        # 获取新的收藏状态
+        data = result.get("data", {})
+        is_favorite = data.get("is_favorite", False)
+        message = result.get("message", "操作成功")
+        
+        # 更新本地JSON文件（如果模型已下载）
+        pth_path = self.model_data.get("pth_path", "")
+        if pth_path:
+            try:
+                models_base_path = os.path.join(os.getcwd(), "models")
+                if not os.path.isabs(pth_path):
+                    model_dir_path = os.path.join(models_base_path, os.path.dirname(pth_path))
+                else:
+                    model_dir_path = os.path.dirname(pth_path)
+                
+                # 查找JSON文件
+                if os.path.exists(model_dir_path):
+                    json_files = [f for f in os.listdir(model_dir_path) if f.endswith(".json")]
+                    if json_files:
+                        json_path = os.path.join(model_dir_path, json_files[0])
+                        
+                        # 读取并更新JSON文件
+                        try:
+                            with open(json_path, 'r', encoding='utf-8') as f:
+                                model_info = json.load(f)
+                            
+                            # 更新分类
+                            category = model_info.get("category", "免费音色")
+                            categories = [cat.strip() for cat in category.split(";") if cat.strip()]
+                            
+                            if is_favorite:
+                                if "收藏" not in categories:
+                                    categories.append("收藏")
+                            else:
+                                if "收藏" in categories:
+                                    categories.remove("收藏")
+                            
+                            model_info["category"] = ";".join(categories)
+                            
+                            # 保存JSON文件
+                            with open(json_path, 'w', encoding='utf-8') as f:
+                                json.dump(model_info, f, indent=2, ensure_ascii=False)
+                            
+                            # 更新model_data
+                            self.model_data["category"] = model_info["category"]
+                        except Exception as e:
+                            print(f"更新本地JSON文件失败: {str(e)}")
+            except Exception as e:
+                print(f"更新本地JSON文件时出错: {str(e)}")
+        
+        # 更新按钮文本和样式
+        if self.favorite_btn:
+            self.favorite_btn.setEnabled(True)
+            if is_favorite:
+                self.favorite_btn.setText("★ 已收藏")
+                self.favorite_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #ff9800;
+                        color: #ffffff;
+                        border: none;
+                        border-radius: 6px;
+                        padding: 8px 16px;
+                        font-size: 14px;
+                    }
+                    QPushButton:hover {
+                        background-color: #f57c00;
+                    }
+                """)
+            else:
+                self.favorite_btn.setText("☆ 收藏")
+                self.favorite_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #4caf50;
+                        color: #ffffff;
+                        border: none;
+                        border-radius: 6px;
+                        padding: 8px 16px;
+                        font-size: 14px;
+                    }
+                    QPushButton:hover {
+                        background-color: #45a049;
+                    }
+                """)
+        
+        # 刷新相关页面
+        if self.main_window:
+            # 刷新管理页面
+            if hasattr(self.main_window, 'pages') and 'management' in self.main_window.pages:
+                management_page = self.main_window.pages['management']
+                if hasattr(management_page, '_refresh_models_with_filter'):
+                    management_page._refresh_models_with_filter()
+                elif hasattr(management_page, 'load_models'):
+                    management_page.load_models()
+        
+        QMessageBox.information(self, "提示", message)
+    
+    def _on_favorite_error(self, error_msg):
+        """收藏操作出错"""
+        # 清理线程
+        if self.favorite_thread:
+            self.favorite_thread.quit()
+            self.favorite_thread.wait()
+            self.favorite_thread = None
+            self.favorite_worker = None
+        
+        # 恢复按钮状态
+        if self.favorite_btn:
+            self.favorite_btn.setEnabled(True)
+            # 恢复按钮文本（根据当前状态）
+            category = self.model_data.get("category", "")
+            categories = [cat.strip() for cat in category.split(";") if cat.strip()]
+            is_favorite = "收藏" in categories
+            if is_favorite:
+                self.favorite_btn.setText("★ 已收藏")
+            else:
+                self.favorite_btn.setText("☆ 收藏")
+        
+        QMessageBox.warning(self, "错误", f"收藏操作失败: {error_msg}")
+    
+    def on_delete_clicked(self):
+        """删除按钮点击"""
+        # 确认删除
+        reply = QMessageBox.question(
+            self,
+            "确认删除",
+            "确定要删除该模型吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        # 获取模型文件路径
+        pth_path = self.model_data.get("pth_path", "")
+        
+        if not pth_path:
+            QMessageBox.warning(self, "错误", "模型文件路径不存在")
+            return
+        
+        # 获取模型目录
+        models_base_path = os.path.join(os.getcwd(), "models")
+        if not os.path.isabs(pth_path):
+            model_dir_path = os.path.join(models_base_path, os.path.dirname(pth_path))
+        else:
+            model_dir_path = os.path.dirname(pth_path)
+        
+        # 确认目录是否存在
+        if not os.path.exists(model_dir_path):
+            QMessageBox.warning(self, "错误", "模型目录不存在")
+            return
+        
+        # 删除整个模型目录及其所有内容
+        errors = []
+        model_dir_name = os.path.basename(model_dir_path)
+        
+        try:
+            # 使用shutil.rmtree递归删除整个目录及其所有内容
+            import shutil
+            shutil.rmtree(model_dir_path)
+        except Exception as e:
+            errors.append(f"删除模型目录失败: {str(e)}")
+        
+        # 显示删除结果
+        if errors:
+            error_msg = "删除失败：\n" + "\n".join(errors)
+            QMessageBox.warning(self, "删除失败", error_msg)
+        else:
+            QMessageBox.information(self, "删除成功", f"已成功删除模型")
+        
+        # 无论是否有错误，都刷新相关页面（因为可能部分文件已删除）
+        if self.main_window:
+            # 刷新管理页面
+            if hasattr(self.main_window, 'pages') and 'management' in self.main_window.pages:
+                management_page = self.main_window.pages['management']
+                if hasattr(management_page, '_refresh_models_with_filter'):
+                    management_page._refresh_models_with_filter()
+                elif hasattr(management_page, 'load_models'):
+                    management_page.load_models()
+            
+            # 刷新主页
+            if hasattr(self.main_window, 'pages') and 'home' in self.main_window.pages:
+                home_page = self.main_window.pages['home']
+                if hasattr(home_page, 'load_models'):
+                    home_page.load_models()
+        
+        # 如果删除成功（没有错误），返回上一页
+        if not errors:
+            self.back_clicked.emit()
     
     def on_download_clicked(self):
         """下载按钮点击"""

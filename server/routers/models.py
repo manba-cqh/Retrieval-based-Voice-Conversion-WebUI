@@ -348,6 +348,52 @@ def get_user_trials(
     }
 
 
+@router.get("/favorites")
+def get_user_favorites(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    获取用户的所有收藏模型
+    """
+    favorite_uids = current_user.get_favorite_model_uids()
+    
+    if not favorite_uids:
+        return {
+            "success": True,
+            "data": {
+                "favorites": [],
+                "total": 0
+            }
+        }
+    
+    # 查询收藏的模型
+    favorites = db.query(Model).filter(
+        Model.uid.in_(favorite_uids),
+        Model.is_active == True
+    ).all()
+    
+    favorite_list = []
+    for model in favorites:
+        favorite_list.append({
+            "id": model.id,
+            "uid": model.uid,
+            "name": model.name,
+            "description": model.description,
+            "category": model.category,
+            "price": model.price,
+            "version": model.version
+        })
+    
+    return {
+        "success": True,
+        "data": {
+            "favorites": favorite_list,
+            "total": len(favorite_list)
+        }
+    }
+
+
 @router.get("/{model_id}", response_model=ModelResponse)
 def get_model(
     model_id: int,
@@ -646,52 +692,6 @@ def get_favorite_status(
         "data": {
             "model_uid": uuid,
             "is_favorite": is_favorite
-        }
-    }
-
-
-@router.get("/favorites")
-def get_user_favorites(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """
-    获取用户的所有收藏模型
-    """
-    favorite_uids = current_user.get_favorite_model_uids()
-    
-    if not favorite_uids:
-        return {
-            "success": True,
-            "data": {
-                "favorites": [],
-                "total": 0
-            }
-        }
-    
-    # 查询收藏的模型
-    favorites = db.query(Model).filter(
-        Model.uid.in_(favorite_uids),
-        Model.is_active == True
-    ).all()
-    
-    favorite_list = []
-    for model in favorites:
-        favorite_list.append({
-            "id": model.id,
-            "uid": model.uid,
-            "name": model.name,
-            "description": model.description,
-            "category": model.category,
-            "price": model.price,
-            "version": model.version
-        })
-    
-    return {
-        "success": True,
-        "data": {
-            "favorites": favorite_list,
-            "total": len(favorite_list)
         }
     }
 

@@ -931,7 +931,175 @@ class ManagementPage(BasePage):
                     }
                 """)
         
-        # 过滤模型
+        # 如果切换到"收藏夹"，从服务器加载收藏模型
+        if category == "收藏夹":
+            if auth_api.is_logged_in():
+                self.load_favorites_from_server()
+            else:
+                # 未登录，只使用本地数据
+                self.filter_models()
+        else:
+            # 其他分类，直接过滤
+            self.filter_models()
+        self.refresh_from_server()
+    
+    def load_favorites_from_server(self):
+        """从服务器加载收藏模型"""
+        # 如果已有加载线程在运行，先清理
+        if self.load_thread and self.load_thread.isRunning():
+            try:
+                if self.load_worker:
+                    self.load_worker.finished.disconnect()
+                    self.load_worker.error.disconnect()
+                self.load_thread.quit()
+                self.load_thread.wait(1000)
+            except:
+                pass
+        
+        # 创建异步任务
+        async def fetch_favorites():
+            """异步获取收藏模型列表"""
+            try:
+                result = await models_api.get_user_favorites()
+                return result
+            except Exception as e:
+                return {"success": False, "message": f"获取收藏模型失败: {str(e)}"}
+        
+        # 使用异步工具运行
+        self.load_thread, self.load_worker = run_async(fetch_favorites())
+        
+        # 连接信号
+        self.load_worker.finished.connect(self.on_favorites_loaded)
+        self.load_worker.error.connect(self.on_favorites_load_error)
+        
+        # 启动线程
+        self.load_thread.start()
+    
+    def _convert_api_model_to_local(self, api_model):
+        """将API模型数据转换为本地格式"""
+        uid = api_model.get("uid", "")
+        category = api_model.get("category", "")
+        categories = [cat.strip() for cat in category.split(";")] if category else []
+        
+        model_data = {
+            "id": f"m{api_model.get('id', '')}",
+            "name": api_model.get("name", ""),
+            "image": "",  # 服务器模型需要下载图片
+            "description": api_model.get("description", ""),
+            "category": category,
+            "is_official": "官方音色" in categories,
+            "is_favorite": True,  # 从收藏列表获取的，肯定是收藏的
+            "version": api_model.get("version", "V1"),
+            "sample_rate": "48K",  # 默认值
+            "pth_path": "",  # 服务器模型需要下载
+            "index_path": "",  # 服务器模型需要下载
+            "uid": uid,
+            "price": api_model.get("price", 0),
+            "is_downloaded": False,  # 默认未下载，会在调用方检查并更新
+        }
+        
+        return model_data
+    
+    def on_favorites_loaded(self, result):
+        """收藏模型加载完成"""
+        try:
+            # 清理线程
+            if self.load_thread:
+                try:
+                    self.load_thread.quit()
+                    self.load_thread.wait()
+                except:
+                    pass
+                self.load_thread = None
+                self.load_worker = None
+            
+            if result.get("success"):
+                # 获取收藏模型列表
+                favorites_data = result.get("data", {})
+                favorites = favorites_data.get("favorites", [])
+                
+                # 将收藏模型转换为本地格式
+                favorite_models = []
+                for fav_model in favorites:
+                    model_data = self._convert_api_model_to_local(fav_model)
+                    model_data["is_favorite"] = True  # 标记为收藏
+                    # 检查是否已下载
+                    model_uid = model_data.get("uid")
+                    is_downloaded = model_uid in self.local_model_uids if model_uid else False
+                    model_data["is_downloaded"] = is_downloaded
+                    
+                    # 如果已下载，从本地获取路径信息
+                    if is_downloaded:
+                        local_models = self._fetch_all_local_models()
+                        for local_model in local_models:
+                            if local_model.get("uid") == model_uid:
+                                model_data["pth_path"] = local_model.get("pth_path", "")
+                                model_data["index_path"] = local_model.get("index_path", "")
+                                model_data["image"] = local_model.get("image", "")
+                                break
+                    
+                    favorite_models.append(model_data)
+                
+                # 合并本地收藏模型和服务器收藏模型
+                # 先获取所有本地模型（包含收藏标记的）
+                local_models = self._fetch_all_local_models()
+                
+                # 创建服务器收藏模型的uid集合
+                server_favorite_uids = {model.get("uid") for model in favorite_models if model.get("uid")}
+                
+                # 合并：本地已下载的收藏模型优先，服务器收藏模型补充
+                merged_favorites = []
+                merged_uids = set()
+                
+                # 先添加本地已下载的收藏模型
+                for local_model in local_models:
+                    local_uid = local_model.get("uid")
+                    if local_uid:
+                        category = local_model.get("category", "")
+                        categories = [cat.strip() for cat in category.split(";") if cat.strip()]
+                        is_favorite = "收藏" in categories
+                        
+                        if is_favorite and local_uid not in merged_uids:
+                            merged_favorites.append(local_model)
+                            merged_uids.add(local_uid)
+                
+                # 添加服务器收藏模型（如果不在本地已添加的列表中）
+                for server_fav in favorite_models:
+                    server_uid = server_fav.get("uid")
+                    if server_uid and server_uid not in merged_uids:
+                        merged_favorites.append(server_fav)
+                        merged_uids.add(server_uid)
+                
+                # 更新models_data为收藏模型列表
+                self.models_data = merged_favorites
+                self.models_data.sort(key=lambda x: x.get("name", "").lower())
+                
+                # 执行过滤（虽然已经是收藏的了，但还要执行搜索过滤等）
+                self.filter_models()
+            else:
+                # 如果获取失败，使用本地数据过滤
+                print(f"获取收藏模型失败: {result.get('message', '未知错误')}")
+                self.filter_models()
+        except Exception as e:
+            print(f"处理收藏模型数据失败: {e}")
+            # 出错时使用本地数据过滤
+            self.filter_models()
+    
+    def on_favorites_load_error(self, error):
+        """收藏模型加载错误"""
+        print(f"从服务器加载收藏模型失败: {error}")
+        
+        # 清理线程
+        if self.load_thread:
+            try:
+                self.load_thread.quit()
+                self.load_thread.wait()
+            except:
+                pass
+            self.load_thread = None
+            self.load_worker = None
+        
+        # 使用本地数据过滤
         self.filter_models()
     
     def on_search_changed(self, text):
