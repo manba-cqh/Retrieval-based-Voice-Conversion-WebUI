@@ -61,6 +61,14 @@ def _run_migrations():
                     conn.execute(text("ALTER TABLE users ADD COLUMN mac VARCHAR(50)"))
                     conn.commit()
                 print("迁移完成：已添加 mac 列")
+            
+            if "favorite_models" not in columns:
+                # 列不存在，添加列
+                print("检测到数据库需要迁移：添加 favorite_models 列...")
+                with engine.connect() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN favorite_models TEXT"))
+                    conn.commit()
+                print("迁移完成：已添加 favorite_models 列")
         
         # 检查 trial_records 表是否存在
         if "trial_records" not in table_names:

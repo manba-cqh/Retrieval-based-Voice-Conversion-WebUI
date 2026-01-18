@@ -17,6 +17,7 @@ class User(Base):
     email = Column(String(100), nullable=True)
     mac = Column(String(50), nullable=True, index=True)  # MAC地址，用于设备绑定
     available_models = Column(Text, nullable=True)  # 可用模型的UUID列表，用分号分隔
+    favorite_models = Column(Text, nullable=True)  # 收藏模型的UUID列表，用分号分隔
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -64,6 +65,46 @@ class User(Base):
         if not model_uid or not model_uid.strip():
             return False
         return model_uid.strip() in self.get_available_model_uids()
+    
+    def get_favorite_model_uids(self) -> List[str]:
+        """获取用户收藏模型的UUID列表"""
+        if not self.favorite_models:
+            return []
+        return [uid.strip() for uid in self.favorite_models.split(";") if uid.strip()]
+    
+    def add_favorite_model(self, model_uid: str) -> bool:
+        """添加收藏模型UUID（如果不存在）"""
+        if not model_uid or not model_uid.strip():
+            return False
+        
+        model_uid = model_uid.strip()
+        current_uids = self.get_favorite_model_uids()
+        
+        if model_uid not in current_uids:
+            current_uids.append(model_uid)
+            self.favorite_models = ";".join(current_uids)
+            return True
+        return False
+    
+    def remove_favorite_model(self, model_uid: str) -> bool:
+        """移除收藏模型UUID（如果存在）"""
+        if not model_uid or not model_uid.strip():
+            return False
+        
+        model_uid = model_uid.strip()
+        current_uids = self.get_favorite_model_uids()
+        
+        if model_uid in current_uids:
+            current_uids.remove(model_uid)
+            self.favorite_models = ";".join(current_uids) if current_uids else None
+            return True
+        return False
+    
+    def has_favorite_model(self, model_uid: str) -> bool:
+        """检查用户是否收藏了该模型"""
+        if not model_uid or not model_uid.strip():
+            return False
+        return model_uid.strip() in self.get_favorite_model_uids()
 
 
 class Model(Base):

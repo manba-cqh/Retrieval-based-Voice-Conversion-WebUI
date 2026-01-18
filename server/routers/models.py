@@ -587,3 +587,111 @@ def get_trial_status(
         }
     }
 
+
+@router.post("/by-uuid/{uuid}/favorite")
+def toggle_favorite(
+    uuid: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    切换模型收藏状态（收藏/取消收藏）
+    """
+    # 查找模型
+    model = db.query(Model).filter(Model.uid == uuid, Model.is_active == True).first()
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="模型不存在"
+        )
+    
+    # 检查当前收藏状态
+    is_favorite = current_user.has_favorite_model(uuid)
+    
+    if is_favorite:
+        # 取消收藏
+        current_user.remove_favorite_model(uuid)
+        message = "已取消收藏"
+    else:
+        # 添加收藏
+        current_user.add_favorite_model(uuid)
+        message = "已添加到收藏"
+    
+    db.commit()
+    db.refresh(current_user)
+    
+    return {
+        "success": True,
+        "message": message,
+        "data": {
+            "model_uid": uuid,
+            "is_favorite": not is_favorite
+        }
+    }
+
+
+@router.get("/by-uuid/{uuid}/favorite-status")
+def get_favorite_status(
+    uuid: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    获取模型的收藏状态
+    """
+    is_favorite = current_user.has_favorite_model(uuid)
+    
+    return {
+        "success": True,
+        "data": {
+            "model_uid": uuid,
+            "is_favorite": is_favorite
+        }
+    }
+
+
+@router.get("/favorites")
+def get_user_favorites(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    获取用户的所有收藏模型
+    """
+    favorite_uids = current_user.get_favorite_model_uids()
+    
+    if not favorite_uids:
+        return {
+            "success": True,
+            "data": {
+                "favorites": [],
+                "total": 0
+            }
+        }
+    
+    # 查询收藏的模型
+    favorites = db.query(Model).filter(
+        Model.uid.in_(favorite_uids),
+        Model.is_active == True
+    ).all()
+    
+    favorite_list = []
+    for model in favorites:
+        favorite_list.append({
+            "id": model.id,
+            "uid": model.uid,
+            "name": model.name,
+            "description": model.description,
+            "category": model.category,
+            "price": model.price,
+            "version": model.version
+        })
+    
+    return {
+        "success": True,
+        "data": {
+            "favorites": favorite_list,
+            "total": len(favorite_list)
+        }
+    }
+
