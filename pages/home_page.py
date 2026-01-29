@@ -309,7 +309,9 @@ class ModelDetailPage(QWidget):
         self.setup_ui()
         
         # 页面加载后检查试用状态（延迟一点，确保UI元素已创建）
-        QTimer.singleShot(100, self._check_trial_status)
+        # 只有在已登录时才检查试用状态
+        if auth_api.is_logged_in():
+            QTimer.singleShot(100, self._check_trial_status)
     
     def on_back_clicked(self):
         """返回按钮点击"""
@@ -1447,6 +1449,11 @@ class ModelDetailPage(QWidget):
     
     def _check_trial_status(self):
         """检查试用状态（页面加载时）"""
+        # 检查登录状态，未登录时不检查试用状态
+        if not auth_api.is_logged_in():
+            print("未登录，跳过试用状态检查")
+            return
+        
         # 先清理之前的检查线程（如果存在）
         self._cleanup_check_status_thread()
         
@@ -1601,6 +1608,11 @@ class ModelDetailPage(QWidget):
     
     def _sync_trial_status(self):
         """同步服务器试用状态"""
+        # 检查登录状态，未登录时不同步试用状态
+        if not auth_api.is_logged_in():
+            print("未登录，跳过试用状态同步")
+            return
+        
         # 先清理之前的同步线程（如果存在）
         self._cleanup_sync_status_thread()
         
