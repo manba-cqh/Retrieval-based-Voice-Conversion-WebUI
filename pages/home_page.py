@@ -2620,8 +2620,11 @@ class HomePage(BasePage):
             self.update_model_grid()
             return
         
-        # 登录成功后，加载用户的试用记录
-        self._load_user_trials()
+        # 登录成功后，加载用户的试用记录（再次确认登录状态）
+        if auth_api.is_logged_in():
+            self._load_user_trials()
+        else:
+            print("登录状态异常，跳过加载试用记录")
         
         # 创建异步任务
         async def fetch_models():

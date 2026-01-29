@@ -70,6 +70,16 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             模型列表结果字典
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法获取模型列表")
+            return {
+                "success": False,
+                "message": "未登录，无法获取模型列表",
+                "models": [],
+                "total": 0
+            }
+        
         url = self._get_url(API_MODELS)
         params = {
             "skip": skip,
@@ -99,6 +109,14 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             模型详情字典
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法获取模型详情")
+            return {
+                "success": False,
+                "message": "未登录，无法获取模型详情"
+            }
+        
         url = f"{self._get_url(API_MODELS)}/{model_id}"
         
         result = await self.get(url, headers=self._get_headers())
@@ -120,6 +138,14 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             下载结果字典，包含 file_path（完整路径）和 file_name（文件名）
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法下载模型包")
+            return {
+                "success": False,
+                "message": "未登录，无法下载模型包"
+            }
+        
         import httpx
         import os
         import re
@@ -206,6 +232,14 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             下载结果字典
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法下载模型")
+            return {
+                "success": False,
+                "message": "未登录，无法下载模型"
+            }
+        
         url = f"{self._get_url(API_MODELS)}/{model_id}/file"
         headers = self._get_headers()
         
@@ -257,6 +291,14 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             下载结果字典，包含 file_path（完整路径）和 file_name（文件名）
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法下载模型图片")
+            return {
+                "success": False,
+                "message": "未登录，无法下载模型图片"
+            }
+        
         import httpx
         import os
         import re
@@ -346,6 +388,14 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             下载结果字典，包含 file_path（完整路径）和 file_name（文件名）
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法下载模型音频")
+            return {
+                "success": False,
+                "message": "未登录，无法下载模型音频"
+            }
+        
         import httpx
         import os
         import re
@@ -434,6 +484,14 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             试用结果字典
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法开始试用")
+            return {
+                "success": False,
+                "message": "未登录，无法开始试用"
+            }
+        
         base_url = self._get_url(API_MODELS)
         if base_url.endswith('/'):
             base_url = base_url.rstrip('/')
@@ -464,6 +522,14 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             试用状态字典
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法获取试用状态")
+            return {
+                "success": False,
+                "message": "未登录，无法获取试用状态"
+            }
+        
         base_url = self._get_url(API_MODELS)
         if base_url.endswith('/'):
             base_url = base_url.rstrip('/')
@@ -491,6 +557,14 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             试用记录列表
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法获取试用记录")
+            return {
+                "success": False,
+                "message": "未登录，无法获取试用记录"
+            }
+        
         base_url = self._get_url(API_MODELS)
         if base_url.endswith('/'):
             base_url = base_url.rstrip('/')
@@ -530,6 +604,14 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             收藏操作结果字典
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法切换收藏状态")
+            return {
+                "success": False,
+                "message": "未登录，无法切换收藏状态"
+            }
+        
         base_url = self._get_url(API_MODELS)
         if base_url.endswith('/'):
             base_url = base_url.rstrip('/')
@@ -560,6 +642,14 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             收藏状态字典
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法获取收藏状态")
+            return {
+                "success": False,
+                "message": "未登录，无法获取收藏状态"
+            }
+        
         base_url = self._get_url(API_MODELS)
         if base_url.endswith('/'):
             base_url = base_url.rstrip('/')
@@ -587,6 +677,14 @@ class ModelsAPI(AsyncAPIClient):
         Returns:
             收藏模型列表
         """
+        # 检查登录状态，未登录时直接返回失败
+        if not auth_api.is_logged_in():
+            print("未登录，无法获取收藏列表")
+            return {
+                "success": False,
+                "message": "未登录，无法获取收藏列表"
+            }
+        
         base_url = self._get_url(API_MODELS)
         if base_url.endswith('/'):
             base_url = base_url.rstrip('/')
