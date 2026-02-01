@@ -14,6 +14,7 @@ from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 from .base_page import BasePage
 from api.models import models_api
+from api.config import CLIENT_MODELS_DIR
 from api.async_utils import run_async
 from api.auth import auth_api
 
@@ -907,7 +908,7 @@ class ModelDetailPage(QWidget):
         file_path = self.model_data.get("pth_path", "")
         if file_path:
             # file_path是相对路径，需要拼接models目录
-            models_base_path = os.path.join(os.getcwd(), "models")
+            models_base_path = CLIENT_MODELS_DIR
             full_file_path = os.path.join(models_base_path, file_path)
             file_dir = os.path.dirname(full_file_path)
             
@@ -920,7 +921,7 @@ class ModelDetailPage(QWidget):
                     return
         
         # 如果file_path不可用，尝试从 models 目录查找（通过模型名称匹配）
-        models_dir = os.path.join(os.getcwd(), "models")
+        models_dir = CLIENT_MODELS_DIR
         if os.path.exists(models_dir):
             for item in os.listdir(models_dir):
                 model_dir_path = os.path.join(models_dir, item)
@@ -1984,7 +1985,7 @@ class ModelDetailPage(QWidget):
         pth_path = self.model_data.get("pth_path", "")
         if pth_path:
             try:
-                models_base_path = os.path.join(os.getcwd(), "models")
+                models_base_path = CLIENT_MODELS_DIR
                 if not os.path.isabs(pth_path):
                     model_dir_path = os.path.join(models_base_path, os.path.dirname(pth_path))
                 else:
@@ -2116,7 +2117,7 @@ class ModelDetailPage(QWidget):
             return
         
         # 获取模型目录
-        models_base_path = os.path.join(os.getcwd(), "models")
+        models_base_path = CLIENT_MODELS_DIR
         if not os.path.isabs(pth_path):
             model_dir_path = os.path.join(models_base_path, os.path.dirname(pth_path))
         else:
@@ -2192,7 +2193,7 @@ class ModelDetailPage(QWidget):
         async def download_and_extract():
             try:
                 # 客户端models目录
-                client_models_dir = os.path.join(os.getcwd(), "models")
+                client_models_dir = CLIENT_MODELS_DIR
                 os.makedirs(client_models_dir, exist_ok=True)
                 
                 # 下载进度回调（使用信号安全更新UI）
@@ -2713,7 +2714,7 @@ class HomePage(BasePage):
     def _load_local_model_uids(self):
         """加载本地模型的uid列表"""
         self.local_model_uids.clear()
-        models_dir = os.path.join(os.getcwd(), "models")
+        models_dir = CLIENT_MODELS_DIR
         
         if not os.path.exists(models_dir):
             return
@@ -2891,7 +2892,7 @@ class HomePage(BasePage):
             # 如果file_path不可用，尝试在服务端的models目录中查找
             if not image_path and file_path:
                 # file_path是相对路径，需要拼接models目录
-                models_base_path = os.path.join(os.getcwd(), "models")
+                models_base_path = CLIENT_MODELS_DIR
                 full_file_path = os.path.join(models_base_path, file_path)
                 file_dir = os.path.dirname(full_file_path)
                 

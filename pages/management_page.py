@@ -11,6 +11,7 @@ from PyQt6.QtGui import QFont, QIcon, QPixmap, QMovie
 
 from .base_page import BasePage
 from api.auth import auth_api
+from api.config import CLIENT_MODELS_DIR
 from api.models import models_api
 from .home_page import ModelCard, ModelDetailPage
 from api.async_utils import run_async
@@ -368,8 +369,8 @@ class ManagementPage(BasePage):
     def _load_local_model_uids(self):
         """加载本地模型的uid列表"""
         self.local_model_uids.clear()
-        models_dir = os.path.join(os.getcwd(), "models")
-        
+        models_dir = CLIENT_MODELS_DIR
+
         if not os.path.exists(models_dir):
             return
         
@@ -507,7 +508,7 @@ class ManagementPage(BasePage):
     
     def _fetch_all_local_models(self):
         """从models目录获取所有本地模型数据（不进行可用性过滤）"""
-        models_dir = os.path.join(os.getcwd(), "models")
+        models_dir = CLIENT_MODELS_DIR
         models_data = []
         
         # 如果models目录不存在，返回空列表
@@ -661,7 +662,7 @@ class ManagementPage(BasePage):
     
     def fetch_models_from_models_dir(self):
         """从models目录获取模型数据（只返回用户可用的模型）"""
-        models_dir = os.path.join(os.getcwd(), "models")
+        models_dir = CLIENT_MODELS_DIR
         models_data = []
         
         # 如果models目录不存在，返回空列表

@@ -25,6 +25,7 @@ from PyQt6.QtGui import QFont, QResizeEvent, QPixmap, QMovie
 # 导入工具函数
 from .tools import create_slider
 from api.auth import auth_api
+from api.config import CLIENT_MODELS_DIR
 
 # 导入项目模块（延迟导入，避免阻塞）
 sys.path.append(os.getcwd())
@@ -637,9 +638,9 @@ class InferencePage(QWidget):
     
     def load_models(self):
         """从models目录加载模型列表（只返回用户可用的模型）"""
-        models_dir = os.path.join(os.getcwd(), "models")
+        models_dir = CLIENT_MODELS_DIR
         self.models_data = []
-        
+
         # 如果models目录不存在，创建它
         if not os.path.exists(models_dir):
             os.makedirs(models_dir, exist_ok=True)
