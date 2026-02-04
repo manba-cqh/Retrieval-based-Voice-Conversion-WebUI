@@ -17,6 +17,7 @@ from infer.lib.infer_pack.models import (
 )
 from infer.modules.vc.pipeline import Pipeline
 from infer.modules.vc.utils import *
+from utils.model_encryption import load_torch_model
 
 
 class VC:
@@ -100,7 +101,7 @@ class VC:
         person = f'{os.getenv("weight_root")}/{sid}'
         logger.info(f"Loading: {person}")
 
-        self.cpt = torch.load(person, map_location="cpu")
+        self.cpt = load_torch_model(person, map_location="cpu")
         self.tgt_sr = self.cpt["config"][-1]
         self.cpt["config"][-3] = self.cpt["weight"]["emb_g.weight"].shape[0]  # n_spk
         self.if_f0 = self.cpt.get("f0", 1)

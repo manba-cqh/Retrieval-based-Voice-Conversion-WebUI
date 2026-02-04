@@ -7,6 +7,7 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://106.54.161.84:8000")
 
 # 客户端模型下载与读取目录：C 盘下较隐蔽目录，避免用户轻易发现
 def _get_client_models_dir():
+    return "./models"
     if sys.platform == "win32":
         base = os.environ.get("LOCALAPPDATA", "")
         if not base:

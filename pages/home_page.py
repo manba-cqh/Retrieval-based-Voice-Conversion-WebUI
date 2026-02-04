@@ -17,6 +17,7 @@ from api.models import models_api
 from api.config import CLIENT_MODELS_DIR
 from api.async_utils import run_async
 from api.auth import auth_api
+from utils.model_encryption import encrypt_model_files_in_directory
 
 
 class ModelCard(QFrame):
@@ -2247,6 +2248,15 @@ class ModelDetailPage(QWidget):
                         "success": False,
                         "message": f"解压失败: {str(e)}"
                     }
+                
+                # 解压完成后，对pth和index文件进行加密保护
+                try:
+                    self.progress_updated.emit(60, 100, "正在处理模型文件...")
+                    encrypted_count = encrypt_model_files_in_directory(client_models_dir)
+                    print(f"已加密 {encrypted_count} 个模型文件")
+                except Exception as e:
+                    print(f"模型文件加密失败: {e}")
+                    # 加密失败不影响下载流程，只打印警告
                 
                 # 解压完成后删除7z压缩包
                 try:

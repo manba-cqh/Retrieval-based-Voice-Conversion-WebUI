@@ -21,6 +21,8 @@ from scipy import signal
 now_dir = os.getcwd()
 sys.path.append(now_dir)
 
+from utils.model_encryption import load_faiss_index
+
 bh, ah = signal.butter(N=5, Wn=48, btype="high", fs=16000)
 
 input_audio_path2wav = {}
@@ -307,7 +309,7 @@ class Pipeline(object):
             and index_rate != 0
         ):
             try:
-                index = faiss.read_index(file_index)
+                index = load_faiss_index(file_index)
                 # big_npy = np.load(file_big_npy)
                 big_npy = index.reconstruct_n(0, index.ntotal)
             except:

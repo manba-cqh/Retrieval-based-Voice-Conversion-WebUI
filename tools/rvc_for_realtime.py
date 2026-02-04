@@ -81,6 +81,7 @@ sys.path.append(now_dir)
 from multiprocessing import Manager as M
 
 from configs.config import Config
+from utils.model_encryption import load_faiss_index
 
 # config = Config()
 
@@ -137,7 +138,7 @@ class RVC:
             self.is_half = config.is_half
 
             if index_rate != 0:
-                self.index = faiss.read_index(index_path)
+                self.index = load_faiss_index(index_path)
                 self.big_npy = self.index.reconstruct_n(0, self.index.ntotal)
                 printt("Index search enabled")
             self.pth_path: str = pth_path
@@ -249,7 +250,7 @@ class RVC:
 
     def change_index_rate(self, new_index_rate):
         if new_index_rate != 0 and self.index_rate == 0:
-            self.index = faiss.read_index(self.index_path)
+            self.index = load_faiss_index(self.index_path)
             self.big_npy = self.index.reconstruct_n(0, self.index.ntotal)
             printt("Index search enabled")
         self.index_rate = new_index_rate
