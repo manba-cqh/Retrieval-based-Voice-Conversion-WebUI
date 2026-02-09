@@ -136,7 +136,7 @@ class MainWindow(QMainWindow):
         
         top_layout = QHBoxLayout(top_bar)
         top_layout.setContentsMargins(20, 0, 20, 0)
-        top_layout.setSpacing(20)
+        top_layout.setSpacing(12)
         
         # 左侧：Logo
         logo_label = QLabel("")
@@ -164,14 +164,7 @@ class MainWindow(QMainWindow):
             icon = QIcon(icon_path)
             btn = QPushButton(icon, text)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setFixedSize(120, 42)
-            btn.setStyleSheet("""
-                QPushButton {
-                    font-size: 42px;
-                    font-weight: bold;
-                }
-                text-align: center;
-            """)
+            btn.setFixedSize(130, 42)
             
             # 设置图标大小
             btn.setIconSize(QSize(24, 24))
@@ -183,7 +176,7 @@ class MainWindow(QMainWindow):
         # 设置默认选中"主页"
         self.update_nav_button_style("home")
         
-        top_layout.addSpacing(36)
+        top_layout.addSpacing(24)
         
         # 右侧：用户操作按钮
         logout_btn = QPushButton("退出登录")
@@ -260,19 +253,25 @@ class MainWindow(QMainWindow):
                 # 选中状态：特殊背景色
                 btn.setStyleSheet("""
                     QPushButton {
+                        font-size: 16px;
+                        font-weight: bold;
                         background-color: #8b5cf6;
                         text-align: left;
                     }
                     QPushButton:hover {
+                        font-size: 16px;
+                        font-weight: bold;
                         background-color: #7c3aed;
                     }
                     QPushButton:pressed {
+                        font-size: 16px;
+                        font-weight: bold;
                         background-color: #6d28d9;
                     }
                 """)
             else:
                 # 未选中状态：使用全局样式，只设置特殊属性
-                btn.setStyleSheet("text-align: left;")
+                btn.setStyleSheet("text-align: left; font-size: 16px; font-weight: bold;")
     
     def on_nav_clicked(self, key):
         """导航按钮点击事件"""
