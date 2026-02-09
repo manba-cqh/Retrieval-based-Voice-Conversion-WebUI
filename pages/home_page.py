@@ -6,10 +6,10 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QScrollArea, QGridLayout, QFrame, QStackedWidget,
-    QProgressBar, QMessageBox, QSizePolicy, QSlider
+    QProgressBar, QMessageBox, QSizePolicy, QSlider, QApplication
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QUrl, QMetaObject, Q_ARG, QSize
-from PyQt6.QtGui import QFont, QPixmap, QIcon, QMovie
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot, QThread, QUrl, QMetaObject, Q_ARG, QSize, QEvent
+from PyQt6.QtGui import QFont, QPixmap, QIcon, QMovie, QImageReader
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 from .base_page import BasePage
@@ -39,7 +39,9 @@ class ModelCard(QFrame):
         
         # 保存图片对象引用，用于传递给详情页
         self.original_pixmap = None  # 静态图片的原始 pixmap
-        self.movie = None  # GIF 动图的 movie 对象
+        self.movie = None  # GIF 动图的 movie 对象（仅在 hover 时创建）
+        self.gif_path = None  # GIF 文件路径（用于 hover 时创建 QMovie）
+        self.gif_first_frame = None  # GIF 第一帧的 QPixmap
         
         self.setup_ui()
     
@@ -126,13 +128,20 @@ class ModelCard(QFrame):
                 # 检查是否为 GIF 动图
                 file_ext = os.path.splitext(self.model_image)[1].lower()
                 if file_ext == '.gif':
-                    # 使用 QMovie 加载 GIF 动图
-                    movie = QMovie(self.model_image)
-                    movie.setScaledSize(self.image_label.size())
-                    self.image_label.setMovie(movie)
-                    movie.start()
-                    # 保存 movie 引用，防止被垃圾回收
-                    self.movie = movie
+                    # 保存 GIF 路径，hover 时才创建 QMovie（避免线程问题）
+                    self.gif_path = self.model_image
+                    
+                    # 显示第一帧作为静态图片
+                    reader = QImageReader(self.model_image)
+                    if reader.canRead():
+                        first_frame_pixmap = QPixmap.fromImageReader(reader)
+                        if not first_frame_pixmap.isNull():
+                            self.gif_first_frame = first_frame_pixmap.scaled(
+                                self.image_label.size(),
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation
+                            )
+                            self.image_label.setPixmap(self.gif_first_frame)
                 elif file_ext == '.png' or file_ext == '.jpg' or file_ext == '.jpeg' or file_ext == '.bmp' or file_ext == '.webp':
                     # 使用 QPixmap 加载静态图片（PNG、JPG等）
                     pixmap = QPixmap(self.model_image)
@@ -159,6 +168,31 @@ class ModelCard(QFrame):
             # 根据名称生成占位符
             placeholder = self.model_name[0] if self.model_name else "?"
             self.image_label.setText(f"<div style='font-size: 48px; color: #8b5cf6;'>{placeholder}</div>")
+    
+    def enterEvent(self, event):
+        """鼠标进入 ModelCard 时开始播放 GIF"""
+        if self.gif_path and hasattr(self, 'image_label'):
+            # 每次 hover 时在当前线程创建新的 QMovie，彻底避免线程问题
+            movie = QMovie(self.gif_path)
+            movie.setScaledSize(self.image_label.size())
+            self.movie = movie
+            self.image_label.setMovie(movie)
+            movie.start()
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        """鼠标离开 ModelCard 时停止 GIF，显示第一帧"""
+        if self.gif_path and hasattr(self, 'image_label'):
+            # 停止并销毁 movie
+            if self.movie:
+                self.movie.stop()
+                self.image_label.setMovie(None)
+                self.movie.deleteLater()
+                self.movie = None
+            # 显示第一帧静态图片
+            if self.gif_first_frame and not self.gif_first_frame.isNull():
+                self.image_label.setPixmap(self.gif_first_frame)
+        super().leaveEvent(event)
     
     def _load_online_image(self):
         """从服务端下载并显示图片（主页使用，优先从服务端获取）"""

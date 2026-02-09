@@ -234,7 +234,7 @@ class AuthPage(QWidget):
         dialog_layout.setSpacing(20)
         
         # 标题
-        title_label = QLabel("Welcome to 布丁!")
+        title_label = QLabel("Welcome to 娱音!")
         title_label.setProperty("auth_title", True)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         dialog_layout.addWidget(title_label)
