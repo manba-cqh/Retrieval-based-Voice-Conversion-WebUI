@@ -263,26 +263,39 @@ class ModelCard(QFrame):
         self.image_download_thread.start()
     
     def cleanup(self):
-        """清理资源，包括停止下载线程"""
-        if self.image_download_thread and self.image_download_thread.isRunning():
+        """清理资源，包括停止下载线程（非阻塞）"""
+        if self.image_download_thread:
             try:
-                if self.image_download_worker:
-                    self.image_download_worker.finished.disconnect()
-                    self.image_download_worker.error.disconnect()
-                self.image_download_thread.quit()
-                self.image_download_thread.wait(1000)  # 等待最多1秒
-                if self.image_download_thread.isRunning():
-                    self.image_download_thread.terminate()
-                    self.image_download_thread.wait()
+                th, wr = self.image_download_thread, self.image_download_worker
+                self.image_download_thread = self.image_download_worker = None
+                if wr:
+                    try:
+                        wr.finished.disconnect()
+                        wr.error.disconnect()
+                    except (RuntimeError, TypeError):
+                        pass
+                if th.isRunning():
+                    th.quit()
+                    def done(t=th, w=wr):
+                        try:
+                            t.deleteLater()
+                            if w:
+                                w.deleteLater()
+                        except (RuntimeError, TypeError):
+                            pass
+                    try:
+                        th.finished.connect(done, Qt.ConnectionType.SingleShotConnection)
+                    except (AttributeError, TypeError):
+                        th.finished.connect(done)
+                else:
+                    try:
+                        th.deleteLater()
+                        if wr:
+                            wr.deleteLater()
+                    except (RuntimeError, TypeError):
+                        pass
             except Exception as e:
                 print(f"清理图片下载线程时出错: {e}")
-            finally:
-                if self.image_download_thread:
-                    self.image_download_thread.deleteLater()
-                if self.image_download_worker:
-                    self.image_download_worker.deleteLater()
-                self.image_download_thread = None
-                self.image_download_worker = None
 
 
 class ModelDetailPage(QWidget):
@@ -366,76 +379,88 @@ class ModelDetailPage(QWidget):
         self.back_clicked.emit()
     
     def _cleanup_download_thread(self):
-        """清理下载线程资源"""
+        """清理下载线程资源（非阻塞，避免界面卡死）"""
         if hasattr(self, 'download_thread') and self.download_thread:
             try:
-                if hasattr(self, 'download_worker') and self.download_worker:
+                download_thread = self.download_thread
+                download_worker = self.download_worker
+                self.download_thread = None
+                self.download_worker = None
+                
+                if download_worker:
                     try:
-                        self.download_worker.finished.disconnect()
-                        self.download_worker.error.disconnect()
-                    except:
+                        download_worker.finished.disconnect()
+                        download_worker.error.disconnect()
+                    except (RuntimeError, TypeError):
                         pass
                 
-                if hasattr(self.download_thread, 'isRunning') and self.download_thread.isRunning():
-                    self.download_thread.quit()
-                    if not self.download_thread.wait(3000):  # 等待最多3秒
-                        if hasattr(self.download_thread, 'isRunning') and self.download_thread.isRunning():
-                            self.download_thread.terminate()
-                            self.download_thread.wait()
+                if download_thread.isRunning():
+                    # 不调用 wait()，避免阻塞主线程导致界面卡死
+                    download_thread.quit()
+                    # 线程结束后再释放资源（使用 lambda 实现单次连接）
+                    def on_finished(th=download_thread, wr=download_worker):
+                        try:
+                            th.deleteLater()
+                            if wr:
+                                wr.deleteLater()
+                        except (RuntimeError, TypeError):
+                            pass
+                    try:
+                        download_thread.finished.connect(on_finished, Qt.ConnectionType.SingleShotConnection)
+                    except (AttributeError, TypeError):
+                        download_thread.finished.connect(on_finished)
+                else:
+                    try:
+                        download_thread.deleteLater()
+                        if download_worker:
+                            download_worker.deleteLater()
+                    except (RuntimeError, TypeError):
+                        pass
             except RuntimeError:
-                # 对象已被删除
                 pass
             except Exception as e:
                 print(f"清理下载线程时出错: {e}")
-            finally:
-                if hasattr(self, 'download_thread') and self.download_thread:
-                    try:
-                        self.download_thread.deleteLater()
-                    except:
-                        pass
-                if hasattr(self, 'download_worker') and self.download_worker:
-                    try:
-                        self.download_worker.deleteLater()
-                    except:
-                        pass
-                self.download_thread = None
-                self.download_worker = None
     
     def _cleanup_audio_download_thread(self):
-        """清理音频下载线程资源"""
+        """清理音频下载线程资源（非阻塞，避免界面卡死）"""
         if hasattr(self, 'audio_download_thread') and self.audio_download_thread:
             try:
-                if hasattr(self, 'audio_download_worker') and self.audio_download_worker:
+                audio_thread = self.audio_download_thread
+                audio_worker = self.audio_download_worker
+                self.audio_download_thread = None
+                self.audio_download_worker = None
+                
+                if audio_worker:
                     try:
-                        self.audio_download_worker.finished.disconnect()
-                        self.audio_download_worker.error.disconnect()
-                    except:
+                        audio_worker.finished.disconnect()
+                        audio_worker.error.disconnect()
+                    except (RuntimeError, TypeError):
                         pass
                 
-                if hasattr(self.audio_download_thread, 'isRunning') and self.audio_download_thread.isRunning():
-                    self.audio_download_thread.quit()
-                    if not self.audio_download_thread.wait(3000):  # 等待最多3秒
-                        if hasattr(self.audio_download_thread, 'isRunning') and self.audio_download_thread.isRunning():
-                            self.audio_download_thread.terminate()
-                            self.audio_download_thread.wait()
+                if audio_thread.isRunning():
+                    audio_thread.quit()
+                    def on_finished(th=audio_thread, wr=audio_worker):
+                        try:
+                            th.deleteLater()
+                            if wr:
+                                wr.deleteLater()
+                        except (RuntimeError, TypeError):
+                            pass
+                    try:
+                        audio_thread.finished.connect(on_finished, Qt.ConnectionType.SingleShotConnection)
+                    except (AttributeError, TypeError):
+                        audio_thread.finished.connect(on_finished)
+                else:
+                    try:
+                        audio_thread.deleteLater()
+                        if audio_worker:
+                            audio_worker.deleteLater()
+                    except (RuntimeError, TypeError):
+                        pass
             except RuntimeError:
-                # 对象已被删除
                 pass
             except Exception as e:
                 print(f"清理音频下载线程时出错: {e}")
-            finally:
-                if hasattr(self, 'audio_download_thread') and self.audio_download_thread:
-                    try:
-                        self.audio_download_thread.deleteLater()
-                    except:
-                        pass
-                if hasattr(self, 'audio_download_worker') and self.audio_download_worker:
-                    try:
-                        self.audio_download_worker.deleteLater()
-                    except:
-                        pass
-                self.audio_download_thread = None
-                self.audio_download_worker = None
     
     def setup_ui(self):
         """设置详情页面UI"""
@@ -1721,109 +1746,109 @@ class ModelDetailPage(QWidget):
             QMessageBox.information(self, "提示", "试用时间已到")
     
     def _cleanup_trial_thread(self):
-        """清理试用相关线程"""
+        """清理试用相关线程（非阻塞）"""
         if self.trial_thread:
             try:
-                if self.trial_worker:
+                th, wr = self.trial_thread, self.trial_worker
+                self.trial_thread = self.trial_worker = None
+                if wr:
                     try:
-                        self.trial_worker.finished.disconnect()
-                        self.trial_worker.error.disconnect()
-                    except:
+                        wr.finished.disconnect()
+                        wr.error.disconnect()
+                    except (RuntimeError, TypeError):
                         pass
-                
-                if hasattr(self.trial_thread, 'isRunning') and self.trial_thread.isRunning():
-                    self.trial_thread.quit()
-                    if not self.trial_thread.wait(3000):
-                        self.trial_thread.terminate()
-                        self.trial_thread.wait()
-            except RuntimeError:
-                # 对象已被删除
-                pass
+                if th.isRunning():
+                    th.quit()
+                    def done(t=th, w=wr):
+                        try:
+                            t.deleteLater()
+                            if w:
+                                w.deleteLater()
+                        except (RuntimeError, TypeError):
+                            pass
+                    try:
+                        th.finished.connect(done, Qt.ConnectionType.SingleShotConnection)
+                    except (AttributeError, TypeError):
+                        th.finished.connect(done)
+                else:
+                    try:
+                        th.deleteLater()
+                        if wr:
+                            wr.deleteLater()
+                    except (RuntimeError, TypeError):
+                        pass
             except Exception as e:
                 print(f"清理试用线程时出错: {e}")
-            finally:
-                if self.trial_thread:
-                    try:
-                        self.trial_thread.deleteLater()
-                    except:
-                        pass
-                if self.trial_worker:
-                    try:
-                        self.trial_worker.deleteLater()
-                    except:
-                        pass
-                self.trial_thread = None
-                self.trial_worker = None
     
     def _cleanup_check_status_thread(self):
-        """清理检查状态线程"""
+        """清理检查状态线程（非阻塞）"""
         if self.check_status_thread:
             try:
-                if self.check_status_worker:
+                th, wr = self.check_status_thread, self.check_status_worker
+                self.check_status_thread = self.check_status_worker = None
+                if wr:
                     try:
-                        self.check_status_worker.finished.disconnect()
-                        self.check_status_worker.error.disconnect()
-                    except:
+                        wr.finished.disconnect()
+                        wr.error.disconnect()
+                    except (RuntimeError, TypeError):
                         pass
-                
-                if hasattr(self.check_status_thread, 'isRunning') and self.check_status_thread.isRunning():
-                    self.check_status_thread.quit()
-                    if not self.check_status_thread.wait(3000):
-                        self.check_status_thread.terminate()
-                        self.check_status_thread.wait()
-            except RuntimeError:
-                # 对象已被删除
-                pass
+                if th.isRunning():
+                    th.quit()
+                    def done(t=th, w=wr):
+                        try:
+                            t.deleteLater()
+                            if w:
+                                w.deleteLater()
+                        except (RuntimeError, TypeError):
+                            pass
+                    try:
+                        th.finished.connect(done, Qt.ConnectionType.SingleShotConnection)
+                    except (AttributeError, TypeError):
+                        th.finished.connect(done)
+                else:
+                    try:
+                        th.deleteLater()
+                        if wr:
+                            wr.deleteLater()
+                    except (RuntimeError, TypeError):
+                        pass
             except Exception as e:
                 print(f"清理检查状态线程时出错: {e}")
-            finally:
-                if self.check_status_thread:
-                    try:
-                        self.check_status_thread.deleteLater()
-                    except:
-                        pass
-                if self.check_status_worker:
-                    try:
-                        self.check_status_worker.deleteLater()
-                    except:
-                        pass
-                self.check_status_thread = None
-                self.check_status_worker = None
     
     def _cleanup_sync_status_thread(self):
-        """清理同步状态线程"""
+        """清理同步状态线程（非阻塞）"""
         if self.sync_status_thread:
             try:
-                if self.sync_status_worker:
+                th, wr = self.sync_status_thread, self.sync_status_worker
+                self.sync_status_thread = self.sync_status_worker = None
+                if wr:
                     try:
-                        self.sync_status_worker.finished.disconnect()
-                        self.sync_status_worker.error.disconnect()
-                    except:
+                        wr.finished.disconnect()
+                        wr.error.disconnect()
+                    except (RuntimeError, TypeError):
                         pass
-                
-                if hasattr(self.sync_status_thread, 'isRunning') and self.sync_status_thread.isRunning():
-                    self.sync_status_thread.quit()
-                    if not self.sync_status_thread.wait(3000):
-                        self.sync_status_thread.terminate()
-                        self.sync_status_thread.wait()
-            except RuntimeError:
-                # 对象已被删除
-                pass
+                if th.isRunning():
+                    th.quit()
+                    def done(t=th, w=wr):
+                        try:
+                            t.deleteLater()
+                            if w:
+                                w.deleteLater()
+                        except (RuntimeError, TypeError):
+                            pass
+                    try:
+                        th.finished.connect(done, Qt.ConnectionType.SingleShotConnection)
+                    except (AttributeError, TypeError):
+                        th.finished.connect(done)
+                else:
+                    try:
+                        th.deleteLater()
+                        if wr:
+                            wr.deleteLater()
+                    except (RuntimeError, TypeError):
+                        pass
             except Exception as e:
                 print(f"清理同步状态线程时出错: {e}")
-            finally:
-                if self.sync_status_thread:
-                    try:
-                        self.sync_status_thread.deleteLater()
-                    except:
-                        pass
-                if self.sync_status_worker:
-                    try:
-                        self.sync_status_worker.deleteLater()
-                    except:
-                        pass
-                self.sync_status_thread = None
-                self.sync_status_worker = None
     
     def create_use_section(self):
         """创建使用区块（已购买/已下载）"""
@@ -3130,7 +3155,12 @@ class HomePage(BasePage):
         if model_uid and model_uid in self.local_model_uids:
             is_downloaded = True
         
-        # 创建或更新详情页面
+        # 如果是同一个模型且详情页已存在，直接显示（保留下载进度等状态）
+        if self.detail_page and self.current_model and self.current_model.get("id") == model_id:
+            self.stacked_widget.setCurrentWidget(self.detail_page)
+            return
+        
+        # 不同模型或首次进入：创建新详情页面
         if self.detail_page:
             self.detail_page.deleteLater()
         
