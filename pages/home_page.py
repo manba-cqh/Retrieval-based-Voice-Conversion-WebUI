@@ -222,11 +222,8 @@ class ModelCard(QFrame):
                 if result.get("success"):
                     downloaded_path = result.get("file_path")
                     if downloaded_path and os.path.exists(downloaded_path):
-                        # 下载成功，更新图片路径并加载
                         self.model_image = downloaded_path
-                        # 使用QTimer在主线程中更新UI
-                        QTimer.singleShot(0, lambda: self._load_local_image())
-                        return {"success": True}
+                        return {"success": True, "file_path": downloaded_path}
                     else:
                         return {"success": False, "message": "图片文件下载失败"}
                 else:
@@ -258,8 +255,16 @@ class ModelCard(QFrame):
         
         # 创建新的下载线程
         self.image_download_thread, self.image_download_worker = run_async(download_image())
-        self.image_download_worker.finished.connect(lambda result: None)  # 静默处理完成
-        self.image_download_worker.error.connect(lambda error: None)  # 静默处理错误
+
+        def on_image_downloaded(result):
+            if result and result.get("success"):
+                path = result.get("file_path") or self.model_image
+                if path and os.path.exists(path):
+                    self.model_image = path
+                    self._load_local_image()
+
+        self.image_download_worker.finished.connect(on_image_downloaded)
+        self.image_download_worker.error.connect(lambda e: None)  # 静默处理错误
         self.image_download_thread.start()
     
     def cleanup(self):
@@ -2493,6 +2498,7 @@ class HomePage(BasePage):
         self.current_model = None  # 当前查看的模型
         self.local_model_uids = set()  # 本地模型的uid集合（用于快速查找）
         self.user_trials = {}  # 用户的试用记录 {model_uid: trial_data}
+        self._model_card_cache = {}  # model_id -> ModelCard，切换 tab 时复用，避免重新加载图片
         self.setup_content()
         # 不在初始化时加载模型，等待登录成功后再加载
         # self.load_models()  # 加载模型数据
@@ -2687,7 +2693,7 @@ class HomePage(BasePage):
             # 显示空列表
             self.models_data = []
             self.filtered_models = []
-            self.update_model_grid()
+            self.update_model_grid(clear_cache=True)
             return
         
         # 登录成功后，加载用户的试用记录（再次确认登录状态）
@@ -2762,16 +2768,16 @@ class HomePage(BasePage):
             # 按模型名称排序
             self.models_data.sort(key=lambda x: x.get("name", "").lower())
             self.filtered_models = self.models_data.copy()
-            
-            # 更新模型网格
-            self.update_model_grid()
+
+            # 重新加载数据时清空缓存并重建网格
+            self.update_model_grid(clear_cache=True)
         else:
             error_msg = result.get("message", "加载模型数据失败")
             QMessageBox.warning(self, "错误", f"加载模型数据失败：{error_msg}")
             # 如果API加载失败，显示空列表
             self.models_data = []
             self.filtered_models = []
-            self.update_model_grid()
+            self.update_model_grid(clear_cache=True)
     
         # 清理线程
         if self.load_thread:
@@ -3083,24 +3089,46 @@ class HomePage(BasePage):
         
         self.update_model_grid()
     
-    def update_model_grid(self):
-        """更新模型网格"""
-        # 清除现有卡片（先清理资源）
-        while self.grid_layout.count():
-            child = self.grid_layout.takeAt(0)
-            if child.widget():
-                widget = child.widget()
-                # 如果是ModelCard且使用了在线加载，先清理其资源
-                if isinstance(widget, ModelCard) and widget.load_online:
-                    widget.cleanup()
-                widget.deleteLater()
-        
-        # 添加模型卡片（主页使用，优先从服务端获取图片）
+    def update_model_grid(self, clear_cache=False):
+        """更新模型网格。切换 tab 时复用缓存中的卡片（不中断图片加载、不重新加载）；clear_cache=True 时完全重建（如刷新数据后）"""
+        if clear_cache:
+            # 清空缓存并销毁其中卡片
+            for model_id, card in list(self._model_card_cache.items()):
+                if isinstance(card, ModelCard) and card.load_online:
+                    card.cleanup()
+                try:
+                    card.deleteLater()
+                except (RuntimeError, TypeError):
+                    pass
+            self._model_card_cache.clear()
+            # 销毁当前网格中的卡片
+            while self.grid_layout.count():
+                child = self.grid_layout.takeAt(0)
+                if child.widget():
+                    widget = child.widget()
+                    if isinstance(widget, ModelCard) and widget.load_online:
+                        widget.cleanup()
+                    widget.deleteLater()
+        else:
+            # 仅切换 tab：从布局移除卡片并放入缓存（不销毁，保留图片加载状态）
+            while self.grid_layout.count():
+                child = self.grid_layout.takeAt(0)
+                if child.widget():
+                    widget = child.widget()
+                    if isinstance(widget, ModelCard):
+                        widget.hide()  # 从布局移除后先隐藏，避免残留显示
+                        self._model_card_cache[widget.model_id] = widget
+
+        # 按 filtered_models 顺序添加到网格，优先从缓存复用
         columns = 5  # 每行5个
         for i, model_data in enumerate(self.filtered_models):
-            card = ModelCard(model_data, load_online=True)  # 主页使用在线加载
-            card.detail_clicked.connect(self.on_model_detail_clicked)
-            
+            model_id = model_data.get("id", "")
+            card = self._model_card_cache.pop(model_id, None)
+            if card is None:
+                card = ModelCard(model_data, load_online=True)
+                card.detail_clicked.connect(self.on_model_detail_clicked)
+            else:
+                card.show()  # 从缓存复用时要重新显示
             row = i // columns
             col = i % columns
             self.grid_layout.addWidget(card, row, col)
