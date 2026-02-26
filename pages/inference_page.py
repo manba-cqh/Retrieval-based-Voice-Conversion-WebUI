@@ -100,6 +100,30 @@ class SquareFrame(QFrame):
         super().resizeEvent(event)
 
 
+class HoverPreviewFrame(SquareFrame):
+    """带 hover 检测的预览框：GIF 仅鼠标悬停时播放"""
+    def __init__(self, page_parent=None, parent=None):
+        super().__init__(parent)
+        self.page = page_parent  # InferencePage 引用
+    
+    def enterEvent(self, event):
+        """鼠标进入：开始播放 GIF"""
+        if self.page and getattr(self.page, 'preview_is_gif', False) and getattr(self.page, 'preview_movie', None):
+            if getattr(self.page, 'preview_image_label', None):
+                self.page.preview_image_label.setMovie(self.page.preview_movie)
+            self.page.preview_movie.start()
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        """鼠标离开：停止 GIF，显示第一帧"""
+        if self.page and getattr(self.page, 'preview_is_gif', False):
+            if getattr(self.page, 'preview_movie', None):
+                self.page.preview_movie.stop()
+            if getattr(self.page, 'preview_gif_first_frame', None) and getattr(self.page, 'preview_image_label', None):
+                self.page.preview_image_label.setPixmap(self.page.preview_gif_first_frame)
+        super().leaveEvent(event)
+
+
 def phase_vocoder(a, b, fade_out, fade_in):
     """相位声码器"""
     window = torch.sqrt(fade_out * fade_in)
@@ -405,6 +429,8 @@ class InferencePage(QWidget):
         self.preview_overlay = None  # 预览区域底部蒙层
         self.preview_movie = None  # 预览区域的 GIF movie（如果使用 GIF）
         self.preview_is_gif = False  # 预览区域是否为 GIF
+        self.preview_gif_first_frame = None  # GIF 第一帧（未 hover 时显示）
+        self.preview_frame = None  # 预览容器，用于 hover 检测
         
         # 初始化设备列表
         self.update_devices()
@@ -463,7 +489,8 @@ class InferencePage(QWidget):
     
     def create_preview_area(self):
         """创建预览区域（高度占满，宽度等于高度，保持正方形）"""
-        preview = SquareFrame()
+        preview = HoverPreviewFrame(page_parent=self)
+        self.preview_frame = preview
         preview.setStyleSheet("""
             QFrame {
                 background-color: #000000;
@@ -928,22 +955,38 @@ class InferencePage(QWidget):
                 # 检查是否为 GIF 动图
                 file_ext = os.path.splitext(model_image)[1].lower()
                 if file_ext == '.gif':
-                    # 使用 QMovie 加载 GIF 动图
+                    # 使用 QMovie 加载 GIF 动图，仅鼠标悬停时播放
                     self.preview_is_gif = True
                     # 停止之前的 movie（如果存在）
                     if self.preview_movie:
                         self.preview_movie.stop()
+                        self.preview_movie = None
                     
                     movie = QMovie(model_image)
                     self.preview_movie = movie
-                    # 设置 GIF 动图大小，使其适应预览区域
                     if self.preview_image_label:
                         movie.setScaledSize(self.preview_image_label.size())
-                    self.preview_image_label.setMovie(movie)
-                    movie.start()
+                    # 显示第一帧，不自动播放；鼠标悬停时才播放
+                    reader = QImageReader(model_image)
+                    if reader.canRead():
+                        first_frame = QPixmap.fromImageReader(reader)
+                        if not first_frame.isNull():
+                            self.preview_gif_first_frame = first_frame.scaled(
+                                self.preview_image_label.size(),
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation
+                            )
+                            self.preview_image_label.setPixmap(self.preview_gif_first_frame)
+                        else:
+                            self.preview_image_label.setMovie(movie)
+                            movie.start()
+                    else:
+                        self.preview_image_label.setMovie(movie)
+                        movie.start()
                 else:
                     # 使用 QPixmap 加载静态图片（PNG、JPG等）
                     self.preview_is_gif = False
+                    self.preview_gif_first_frame = None
                     # 停止之前的 movie（如果存在）
                     if self.preview_movie:
                         self.preview_movie.stop()
@@ -961,6 +1004,8 @@ class InferencePage(QWidget):
                 self.preview_image_label.setText(model_data["name"])
         else:
             # 图片加载失败，显示文本
+            self.preview_is_gif = False
+            self.preview_gif_first_frame = None
             self.preview_image_label.setText(model_data["name"])
         
         # 更新底部蒙层信息
