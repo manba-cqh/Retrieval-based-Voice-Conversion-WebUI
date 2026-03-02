@@ -96,14 +96,15 @@ class SettingsPage(BasePage):
         layout.setContentsMargins(20, 30, 20, 20)
         
         # 从配置加载默认值
-        volume_val = self.config_data.get("rms_mix_rate", 0.5)
+        # 音量大小：变声后输出音量增益 (0.5=50%, 1.0=100%, 2.0=200%)
+        volume_val = self.config_data.get("output_volume", 1.0)
         fade_val = self.config_data.get("crossfade_length", 0.15)
         harvest_val = int(self.config_data.get("n_cpu", 4))
         extra_val = self.config_data.get("extra_time", 2.99)
         
-        # 音量大小 (使用 rms_mix_rate) - 第0行第0列
+        # 音量大小 - 变声后输出音量 (0.5~2.0，即50%~200%)
         volume_container, self.volume_slider, volume_label = create_slider(
-            "音量大小", volume_val, 0.0, 1.0, volume_val, step=0.01
+            "音量大小", volume_val, 0.5, 2.0, volume_val, step=0.01
         )
         self.volume_slider.valueChanged.connect(
             lambda val: self.on_volume_changed(val, volume_label)
@@ -292,8 +293,12 @@ class SettingsPage(BasePage):
     def load_config(self):
         """加载配置"""
         try:
-            if os.path.exists("configs/inuse/config.json"):
-                with open("configs/inuse/config.json", "r", encoding="utf-8") as f:
+            _config_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "configs", "inuse", "config.json"
+            )
+            if os.path.exists(_config_path):
+                with open(_config_path, "r", encoding="utf-8") as f:
                     self.config_data = json.load(f)
         except Exception as e:
             print(f"加载配置失败: {e}")
@@ -302,20 +307,21 @@ class SettingsPage(BasePage):
     def save_config(self):
         """保存配置"""
         try:
-            os.makedirs("configs/inuse", exist_ok=True)
-            # 读取现有配置，保留未修改的配置项
+            _config_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "configs", "inuse", "config.json"
+            )
+            _config_dir = os.path.dirname(_config_path)
+            os.makedirs(_config_dir, exist_ok=True)
             existing_config = {}
-            if os.path.exists("configs/inuse/config.json"):
+            if os.path.exists(_config_path):
                 try:
-                    with open("configs/inuse/config.json", "r", encoding="utf-8") as f:
+                    with open(_config_path, "r", encoding="utf-8") as f:
                         existing_config = json.load(f)
                 except:
                     pass
-            
-            # 合并配置：先使用现有配置，然后用新配置覆盖
             merged_config = {**existing_config, **self.config_data}
-            
-            with open("configs/inuse/config.json", "w", encoding="utf-8") as f:
+            with open(_config_path, "w", encoding="utf-8") as f:
                 json.dump(merged_config, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"保存配置失败: {e}")
@@ -378,10 +384,10 @@ class SettingsPage(BasePage):
             print(f"检测GPU失败: {e}")
     
     def on_volume_changed(self, value, value_label):
-        """音量大小改变"""
+        """音量大小改变 - 变声后输出音量增益"""
         actual_val = value * 0.01
-        value_label.setText(f"{actual_val:.2f}")
-        self.config_data["rms_mix_rate"] = actual_val
+        value_label.setText(f"{int(actual_val * 100)}%")
+        self.config_data["output_volume"] = actual_val
         self.save_config()
     
     def on_fade_changed(self, value, value_label):

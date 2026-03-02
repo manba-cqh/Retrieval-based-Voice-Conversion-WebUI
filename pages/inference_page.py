@@ -347,6 +347,7 @@ class GUIConfig:
         self.O_noise_reduce: bool = False
         self.use_pv: bool = False
         self.rms_mix_rate: float = 0.0
+        self.output_volume: float = 1.0  # 变声后输出音量增益 (0.5~2.0，即50%~200%)
         self.index_rate: float = 0.0
         self.n_cpu: int = min(n_cpu, 4)
         self.f0method: str = "fcpe"
@@ -1304,16 +1305,30 @@ class InferencePage(QWidget):
         
         return container, combo
     
+    def _get_config_path(self):
+        """获取配置文件路径（兼容开发环境和打包 exe）"""
+        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _inuse = os.path.join(_root, "configs", "inuse", "config.json")
+        if os.path.exists(_inuse):
+            return _inuse, os.path.join(_root, "configs", "config.json")
+        # 回退：按 cwd 查找
+        _cwd_inuse = os.path.join(os.getcwd(), "configs", "inuse", "config.json")
+        _cwd_default = os.path.join(os.getcwd(), "configs", "config.json")
+        return _cwd_inuse, _cwd_default
+
     def load_config(self):
         """加载配置文件"""
         try:
-            if not os.path.exists("configs/inuse/config.json"):
-                if os.path.exists("configs/config.json"):
-                    shutil.copy("configs/config.json", "configs/inuse/config.json")
+            _config_inuse, _config_default = self._get_config_path()
+            
+            if not os.path.exists(_config_inuse):
+                if os.path.exists(_config_default):
+                    os.makedirs(os.path.dirname(_config_inuse), exist_ok=True)
+                    shutil.copy(_config_default, _config_inuse)
                 else:
                     return
             
-            with open("configs/inuse/config.json", "r", encoding="utf-8") as f:
+            with open(_config_inuse, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 
             # 更新配置
@@ -1325,14 +1340,26 @@ class InferencePage(QWidget):
             self.gui_config.f0method = data.get("f0method", "fcpe")
             self.gui_config.sg_input_device = data.get("sg_input_device", "")
             self.gui_config.sg_output_device = data.get("sg_output_device", "")
+            self.gui_config.output_volume = float(data.get("output_volume", 1.0))
+            self.gui_config.crossfade_time = float(data.get("crossfade_length", 0.05))
+            self.gui_config.extra_time = float(data.get("extra_time", 2.5))
+            self.gui_config.threhold = int(data.get("threhold", -60))
             
         except Exception as e:
             print(f"加载配置失败: {e}")
     
     def save_config(self):
-        """保存配置文件"""
+        """保存配置文件（合并现有配置，避免覆盖 output_volume 等设置页项）"""
         try:
-            os.makedirs("configs/inuse", exist_ok=True)
+            _config_inuse, _ = self._get_config_path()
+            os.makedirs(os.path.dirname(_config_inuse), exist_ok=True)
+            existing = {}
+            if os.path.exists(_config_inuse):
+                try:
+                    with open(_config_inuse, "r", encoding="utf-8") as f:
+                        existing = json.load(f)
+                except:
+                    pass
             data = {
                 "pth_path": self.gui_config.pth_path,
                 "index_path": self.gui_config.index_path,
@@ -1342,9 +1369,14 @@ class InferencePage(QWidget):
                 "f0method": self.gui_config.f0method,
                 "sg_input_device": self.gui_config.sg_input_device,
                 "sg_output_device": self.gui_config.sg_output_device,
+                "output_volume": self.gui_config.output_volume,
+                "crossfade_length": self.gui_config.crossfade_time,
+                "extra_time": self.gui_config.extra_time,
+                "threhold": self.gui_config.threhold,
             }
-            with open("configs/inuse/config.json", "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+            merged = {**existing, **data}
+            with open(_config_inuse, "w", encoding="utf-8") as f:
+                json.dump(merged, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"保存配置失败: {e}")
     
@@ -1477,6 +1509,9 @@ class InferencePage(QWidget):
     def on_start_vc(self):
         """开始变声"""
         global flag_vc
+        
+        # 重新加载配置（获取设置页面的最新参数，如音量大小）
+        self.load_config()
         
         # 检查模型文件
         if not self.gui_config.pth_path or not os.path.exists(self.gui_config.pth_path):
@@ -1843,9 +1878,10 @@ class InferencePage(QWidget):
                 self.block_frame : self.block_frame + self.sola_buffer_frame
             ]
             
-            # 输出
+            # 输出：应用音量增益（变声后输出音量大小）
+            output_audio = infer_wav[:self.block_frame] * self.gui_config.output_volume
             outdata[:] = (
-                infer_wav[:self.block_frame]
+                output_audio
                 .repeat(self.gui_config.channels, 1)
                 .t()
                 .cpu()
@@ -1864,8 +1900,6 @@ class InferencePage(QWidget):
             outdata[:] = 0
     
     def update_inference_time(self):
-        """更新推理时间显示"""
+        """更新推理时间显示，并定期重载配置使音量等设置实时生效"""
         if self.flag_vc:
-            elapsed = time.perf_counter() - self.inference_start_time
-            # 这里可以显示总运行时间，如果需要的话
-            pass
+            self.load_config()  # 变声运行时定期重载，使设置页的音量等可实时生效
